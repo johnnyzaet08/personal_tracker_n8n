@@ -1,0 +1,279 @@
+name: personal-tracker
+
+x-n8n-environment: &n8n-environment
+  DB_TYPE: postgresdb
+  DB_POSTGRESDB_HOST: postgres
+  DB_POSTGRESDB_PORT: 5432
+  DB_POSTGRESDB_DATABASE: ${N8N_DB}
+  DB_POSTGRESDB_USER: ${N8N_DB_USER}
+  DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD}
+  DB_POSTGRESDB_SCHEMA: public
+  GENERIC_TIMEZONE: ${TZ:-America/Costa_Rica}
+  TZ: ${TZ:-America/Costa_Rica}
+  N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+  N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_USER_MANAGEMENT_JWT_SECRET}
+  N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+  N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+  N8N_HOST: ${N8N_HOST:-localhost}
+  N8N_PORT: 5678
+  N8N_DIAGNOSTICS_ENABLED: 'false'
+  N8N_PERSONALIZATION_ENABLED: 'false'
+  N8N_VERSION_NOTIFICATIONS_ENABLED: 'false'
+  N8N_TEMPLATES_ENABLED: 'false'
+  N8N_PUBLIC_API_DISABLED: 'true'
+  N8N_COMMUNITY_PACKAGES_ENABLED: 'false'
+  N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
+  N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
+  N8N_MIGRATE_FS_STORAGE_PATH: 'true'
+  N8N_UNVERIFIED_PACKAGES_ENABLED: 'false'
+  N8N_RUNNERS_TASK_TIMEOUT: 60
+  N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES: 268435456
+  N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES: 1000
+  EXECUTIONS_MODE: ${EXECUTIONS_MODE:-regular}
+  EXECUTIONS_DATA_PRUNE: ${EXECUTIONS_DATA_PRUNE:-true}
+  EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-168}
+  N8N_DEFAULT_BINARY_DATA_MODE: ${N8N_DEFAULT_BINARY_DATA_MODE:-filesystem}
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+  LOCAL_TENANT_ID: ${LOCAL_TENANT_ID}
+  API_INTERNAL_URL: http://api:3001
+  IMPORTANT_EMAIL_NO_RULE_ACTION: ${IMPORTANT_EMAIL_NO_RULE_ACTION:-review}
+
+services:
+  postgres:
+    image: postgres:18.6-alpine3.24
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: postgres
+      TRACKER_DB: ${TRACKER_DB}
+      TRACKER_DB_USER: ${TRACKER_DB_USER}
+      TRACKER_DB_PASSWORD: ${TRACKER_DB_PASSWORD}
+      N8N_DB: ${N8N_DB}
+      N8N_DB_USER: ${N8N_DB_USER}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD}
+      TZ: ${TZ:-America/Costa_Rica}
+    volumes:
+      - tracker_postgres_data:/var/lib/postgresql/18/docker
+      - ./infrastructure/postgres/00-init-databases.sh:/docker-entrypoint-initdb.d/00-init-databases.sh:ro
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U $$POSTGRES_USER -d postgres && pg_isready -U $$TRACKER_DB_USER -d $$TRACKER_DB && pg_isready -U $$N8N_DB_USER -d $$N8N_DB',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [data]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: migrate
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgresql://${TRACKER_DB_USER}:${TRACKER_DB_PASSWORD}@postgres:5432/${TRACKER_DB}?options=-c%20TimeZone%3DUTC
+      LOCAL_AUTH_ENABLED: ${LOCAL_AUTH_ENABLED:-true}
+      LOCAL_TENANT_ID: ${LOCAL_TENANT_ID}
+      LOCAL_USER_ID: ${LOCAL_USER_ID}
+      TZ: ${TZ:-America/Costa_Rica}
+    volumes:
+      - ./packages/database/prisma:/workspace/packages/database/prisma
+    command:
+      [
+        '/bin/sh',
+        '-c',
+        'pnpm --filter @tracker/database prisma:migrate && pnpm --filter @tracker/database prisma:seed',
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${TRACKER_DB_USER}:${TRACKER_DB_PASSWORD}@postgres:5432/${TRACKER_DB}?options=-c%20TimeZone%3DUTC
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LOCAL_AUTH_ENABLED: ${LOCAL_AUTH_ENABLED:-true}
+      LOCAL_TENANT_ID: ${LOCAL_TENANT_ID}
+      N8N_INTERNAL_URL: http://n8n:5678
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-America/Costa_Rica}
+    ports:
+      - '127.0.0.1:${API_PORT:-3001}:3001'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/health/database').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [public, data]
+
+  n8n-import:
+    image: n8nio/n8n:2.37.4
+    restart: 'no'
+    environment: *n8n-environment
+    command: ['import:workflow', '--separate', '--input=/workflows']
+    volumes:
+      - ./automation/n8n/workflows:/workflows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [public, data]
+
+  n8n:
+    image: n8nio/n8n:2.37.4
+    restart: unless-stopped
+    environment: *n8n-environment
+    ports:
+      - '127.0.0.1:${N8N_PORT:-5678}:5678'
+    volumes:
+      - tracker_n8n_data:/home/node/.n8n
+      - tracker_n8n_binary_data:/home/node/.n8n/storage
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:5678/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 25s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      n8n-import:
+        condition: service_completed_successfully
+    networks: [public, data]
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      API_INTERNAL_URL: http://api:3001
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      LOCAL_TENANT_ID: ${LOCAL_TENANT_ID}
+      TZ: ${TZ:-America/Costa_Rica}
+    ports:
+      - '127.0.0.1:${WEB_PORT:-3000}:3000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [public]
+
+  redis:
+    image: redis:8.2.1-alpine
+    profiles: [scale]
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD}']
+    volumes:
+      - tracker_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [data]
+
+  n8n-worker:
+    image: n8nio/n8n:2.37.4
+    profiles: [scale]
+    restart: unless-stopped
+    command: ['worker', '--concurrency=${N8N_WORKERS:-1}']
+    environment:
+      <<: *n8n-environment
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [public, data]
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    profiles: [production]
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./infrastructure/docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - tracker_caddy_data:/data
+      - tracker_caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks: [public]
+
+networks:
+  public:
+    name: tracker_public
+  data:
+    name: tracker_data
+    internal: true
+
+volumes:
+  tracker_postgres_data:
+    name: tracker_postgres_data
+  tracker_n8n_data:
+    name: tracker_n8n_data
+  tracker_n8n_binary_data:
+    name: tracker_n8n_binary_data
+  tracker_redis_data:
+    name: tracker_redis_data
+  tracker_caddy_data:
+    name: tracker_caddy_data
+  tracker_caddy_config:
+    name: tracker_caddy_config

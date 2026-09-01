@@ -1,0 +1,54 @@
+{
+  "id": "10000000-0000-4000-8000-000000000099",
+  "name": "99 - Error Handler",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "99000000-0000-4000-8000-000000000001",
+      "name": "Workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const failure = $json.execution ?? {};\nconst workflow = $json.workflow ?? {};\nconst raw = String(failure.error?.message ?? failure.error ?? 'Unknown workflow failure');\nconst sanitized = raw.replace(/(authorization|token|secret|password|cookie)[^,;\\s]*/gi, '$1=[REDACTED]').slice(0, 900);\nreturn [{ json: { schemaVersion: 1, actionType: 'n8n.workflow.error', idempotencyKey: `n8n-error:${failure.id ?? $execution.id}`, status: 'failed', input: { workflowId: workflow.id ?? null, workflowName: workflow.name ?? null, executionId: failure.id ?? null, message: sanitized, lastNodeExecuted: failure.lastNodeExecuted ?? null } } }];"
+      },
+      "id": "99000000-0000-4000-8000-000000000002",
+      "name": "Sanitize failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + '/internal/v1/action-runs' }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "x-internal-api-key", "value": "={{ $env.INTERNAL_API_KEY }}" },
+          { "name": "x-correlation-id", "value": "={{ $json.idempotencyKey }}" }
+        ] },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "99000000-0000-4000-8000-000000000003",
+      "name": "Record sanitized action run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [670, 300],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Workflow error": { "main": [[{ "node": "Sanitize failure", "type": "main", "index": 0 }]] },
+    "Sanitize failure": { "main": [[{ "node": "Record sanitized action run", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "versionId": "99000000-0000-4000-8000-000000000099",
+  "tags": []
+}

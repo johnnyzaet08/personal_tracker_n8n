@@ -1,0 +1,12 @@
+{
+  "name": "@tracker/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./versions": "./versions.json"
+  },
+  "files": [
+    "versions.json"
+  ]
+}

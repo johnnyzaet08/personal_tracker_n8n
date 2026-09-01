@@ -1,0 +1,9 @@
+node_modules
+.next
+apps/web/next-env.d.ts
+dist
+coverage
+pnpm-lock.yaml
+automation/n8n/workflows/*.json
+packages/database/src/generated/
+documentation/

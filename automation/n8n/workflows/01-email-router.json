@@ -1,0 +1,93 @@
+{
+  "id": "10000000-0000-4000-8000-000000000001",
+  "name": "01 - Email - Router",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": { "workflowInputs": { "values": [] } },
+      "id": "01000000-0000-4000-8000-000000000001",
+      "name": "Normalized email event",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [140, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $json;\nconst labels = Array.isArray(event.metadata?.classificationLabels) ? event.metadata.classificationLabels : [];\nconst normalized = [...new Set(labels.map(v => String(v).toLowerCase()))];\nreturn [{ json: { ...event, routeFinancial: normalized.includes('financial'), routeImportant: normalized.includes('important'), routeReview: normalized.length === 0 || normalized.includes('review') } }];"
+      },
+      "id": "01000000-0000-4000-8000-000000000002",
+      "name": "Evaluate independent routes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [370, 300],
+      "notes": "Labels are independent. An event can follow financial and important routes in the same execution."
+    },
+    {
+      "parameters": { "conditions": { "boolean": [{ "value1": "={{ $json.routeFinancial }}", "value2": true }] } },
+      "id": "01000000-0000-4000-8000-000000000003",
+      "name": "Financial route?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [610, 150]
+    },
+    {
+      "parameters": { "workflowId": { "__rl": true, "value": "10000000-0000-4000-8000-000000000010", "mode": "id" }, "options": { "waitForSubWorkflow": true } },
+      "id": "01000000-0000-4000-8000-000000000004",
+      "name": "Process financial candidate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [850, 100]
+    },
+    {
+      "parameters": { "conditions": { "boolean": [{ "value1": "={{ $json.routeImportant }}", "value2": true }] } },
+      "id": "01000000-0000-4000-8000-000000000005",
+      "name": "Important route?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [610, 300]
+    },
+    {
+      "parameters": { "workflowId": { "__rl": true, "value": "10000000-0000-4000-8000-000000000020", "mode": "id" }, "options": { "waitForSubWorkflow": true } },
+      "id": "01000000-0000-4000-8000-000000000006",
+      "name": "Process important email",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [850, 260]
+    },
+    {
+      "parameters": { "conditions": { "boolean": [{ "value1": "={{ $json.routeReview }}", "value2": true }] } },
+      "id": "01000000-0000-4000-8000-000000000007",
+      "name": "Review route?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [610, 450]
+    },
+    {
+      "parameters": { "jsCode": "return [{ json: { ...$json, reviewReason: 'NO_CONFIDENT_CLASSIFICATION', priority: 'normal' } }];" },
+      "id": "01000000-0000-4000-8000-000000000008",
+      "name": "Prepare classification review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 430]
+    },
+    {
+      "parameters": { "workflowId": { "__rl": true, "value": "10000000-0000-4000-8000-000000000090", "mode": "id" }, "options": { "waitForSubWorkflow": true } },
+      "id": "01000000-0000-4000-8000-000000000009",
+      "name": "Queue classification review",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [1090, 430]
+    }
+  ],
+  "connections": {
+    "Normalized email event": { "main": [[{ "node": "Evaluate independent routes", "type": "main", "index": 0 }]] },
+    "Evaluate independent routes": { "main": [[{ "node": "Financial route?", "type": "main", "index": 0 }, { "node": "Important route?", "type": "main", "index": 0 }, { "node": "Review route?", "type": "main", "index": 0 }]] },
+    "Financial route?": { "main": [[{ "node": "Process financial candidate", "type": "main", "index": 0 }], []] },
+    "Important route?": { "main": [[{ "node": "Process important email", "type": "main", "index": 0 }], []] },
+    "Review route?": { "main": [[{ "node": "Prepare classification review", "type": "main", "index": 0 }], []] },
+    "Prepare classification review": { "main": [[{ "node": "Queue classification review", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "10000000-0000-4000-8000-000000000099" },
+  "versionId": "01000000-0000-4000-8000-000000000099",
+  "tags": []
+}

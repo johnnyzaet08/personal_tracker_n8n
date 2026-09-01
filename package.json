@@ -1,0 +1,25 @@
+{
+  "name": "personal-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "scripts": {
+    "build": "pnpm --filter @tracker/contracts build && pnpm --filter @tracker/database build && pnpm --filter @tracker/api build && pnpm --filter @tracker/web build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "workflows:validate": "node automation/n8n/scripts/validate-workflows.mjs",
+    "workflows:connectivity": "node automation/n8n/scripts/run-connectivity-check.mjs",
+    "db:generate": "pnpm --filter @tracker/database prisma:generate",
+    "db:migrate": "pnpm --filter @tracker/database prisma:migrate",
+    "db:seed": "pnpm --filter @tracker/database prisma:seed"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  }
+}
