@@ -27,6 +27,10 @@ flowchart LR
 
 Los límites completos están en `docs/architecture.md`.
 
+## Desarrollo coordinado
+
+Las tareas futuras y los subagentes deben comenzar leyendo `AGENTS.md` y `docs/project-memory.md`. La propiedad de dominios, el protocolo para trabajo paralelo y el flujo independiente de Hábitos están definidos en `docs/workstreams.md`.
+
 ## Inicio rápido
 
 1. Copia `.env.example` a `.env`.
