@@ -24,13 +24,21 @@ x-n8n-environment: &n8n-environment
   N8N_COMMUNITY_PACKAGES_ENABLED: 'false'
   N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
   N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
-  N8N_MIGRATE_FS_STORAGE_PATH: 'true'
+  N8N_MIGRATE_FS_STORAGE_PATH: 'false'
+  N8N_EXECUTION_DATA_STORAGE_MODE: filesystem
+  N8N_STORAGE_PATH: /run/n8n-transient
   N8N_UNVERIFIED_PACKAGES_ENABLED: 'false'
   N8N_RUNNERS_TASK_TIMEOUT: 60
   N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES: 268435456
   N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES: 1000
-  EXECUTIONS_MODE: ${EXECUTIONS_MODE:-regular}
-  EXECUTIONS_DATA_PRUNE: ${EXECUTIONS_DATA_PRUNE:-true}
+  EXECUTIONS_MODE: regular
+  EXECUTIONS_DATA_SAVE_ON_SUCCESS: 'none'
+  EXECUTIONS_DATA_SAVE_ON_ERROR: 'none'
+  EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: 'false'
+  EXECUTIONS_DATA_SAVE_ON_PROGRESS: 'false'
+  EXECUTIONS_DATA_PRUNE: 'true'
+  EXECUTIONS_DATA_PRUNE_HARD_DELETE_INTERVAL: 1
+  EXECUTIONS_DATA_HARD_DELETE_BUFFER: 0
   EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-168}
   N8N_DEFAULT_BINARY_DATA_MODE: ${N8N_DEFAULT_BINARY_DATA_MODE:-filesystem}
   INTERNAL_API_KEY: ${INTERNAL_API_KEY}
@@ -133,9 +141,13 @@ services:
     image: n8nio/n8n:2.37.4
     restart: 'no'
     environment: *n8n-environment
-    command: ['import:workflow', '--separate', '--input=/workflows']
+    tmpfs:
+      - /run/n8n-transient:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700
+    entrypoint: ['node']
+    command: ['/scripts/import-preserving-gmail.mjs', '/workflows']
     volumes:
       - ./automation/n8n/workflows:/workflows:ro
+      - ./automation/n8n/scripts:/scripts:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -145,6 +157,8 @@ services:
     image: n8nio/n8n:2.37.4
     restart: unless-stopped
     environment: *n8n-environment
+    tmpfs:
+      - /run/n8n-transient:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0700
     ports:
       - '127.0.0.1:${N8N_PORT:-5678}:5678'
     volumes:
@@ -221,8 +235,10 @@ services:
   n8n-worker:
     image: n8nio/n8n:2.37.4
     profiles: [scale]
-    restart: unless-stopped
-    command: ['worker', '--concurrency=${N8N_WORKERS:-1}']
+    restart: 'no'
+    # Queue needs shared transient storage; this local tmpfs design cannot distribute snapshots.
+    entrypoint: ['/bin/sh', '-c']
+    command: ['echo QUEUE_REQUIRES_VALIDATED_TRANSIENT_STORAGE >&2; exit 1']
     environment:
       <<: *n8n-environment
       EXECUTIONS_MODE: queue

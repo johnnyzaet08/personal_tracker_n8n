@@ -7,3 +7,6 @@ pnpm-lock.yaml
 automation/n8n/workflows/*.json
 packages/database/src/generated/
 documentation/
+
+.private/
+**/dist-tests/

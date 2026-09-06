@@ -19,10 +19,10 @@ sequenceDiagram
   participant API
   participant DB as PostgreSQL tracker
   participant Web as Dashboard
-  Gmail->>n8n: mensaje (Trigger OAuth pendiente)
-  n8n->>n8n: normaliza y valida EmailSourceEvent v1
-  n8n->>API: POST /internal/v1/source-events
-  API->>DB: insert idempotente por tenant/source/external_id
+  Gmail->>n8n: mensaje no leído
+  n8n->>n8n: consulta fuente habilitada y recupera MIME completo
+  n8n->>API: POST /internal/v1/email-ingestion/automatic
+  API->>DB: observación mínima e idempotente y reconciliación
   API-->>n8n: creado o duplicado
   n8n->>n8n: rutas independientes (financial/important/review)
   n8n->>API: candidatos, revisiones o action runs
@@ -64,8 +64,18 @@ La fase comercial debe añadir proveedor de identidad, sesiones, autorización d
 
 La API genera JSON de error con código, mensaje sanitizado, status y correlation ID. Pino escribe logs JSON, redacta autorización, cookies y secreto interno y no registra cuerpos. `99 - Error Handler` reduce los fallos de n8n a metadatos sanitizados y usa `action_runs` cuando la API está alcanzable.
 
-Los cuerpos de correo se guardan en `source_events.payload` porque el modelo de esta fase los exige para reproceso. Antes de producción debe existir un job de retención que elimine o redacte `textBody/htmlBody` después del período aprobado, conservando hash y metadatos mínimos.
+Los cuerpos son entradas transitorias en memoria. `source_events.payload` conserva una proyección mínima sin HTML, texto, adjuntos ni headers de transporte. Los previews y la cola de revisión guardan candidatos financieros con contrato fijo. n8n deshabilita el guardado de datos de ejecuciones nuevas. Véase ADR-005.
 
 ## Escalamiento
 
 Primero se escala verticalmente el monolito. El perfil `scale` añade Redis y workers n8n. La API puede replicarse detrás del proxy porque no guarda sesión en memoria; antes de múltiples réplicas web se debe coordinar la caché de Next.js si se habilita cache persistente.
+
+## Sincronización seleccionada
+
+La API crea `core.email_sync_runs` y devuelve 202; n8n consulta un contexto
+protegido antes de usar Gmail. El preview guarda hasta diez candidatos mínimos en
+`core.email_sync_candidates`, sin crear observaciones ni transacciones. La selección
+explícita se valida por tenant/run y los mensajes se recuperan otra vez. Ambos
+caminos usan `email-ingestion/mime-parser.ts` y `bank-purchase-adapter.ts` en la API.
+`core.email_sources` contiene configuración explícita con FKs de tenant compuestos.
+Finance recibe un candidato independiente de la representación Gmail.

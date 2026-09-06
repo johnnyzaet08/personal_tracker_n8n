@@ -7,9 +7,9 @@ This document is the compact starting context for future tasks. It records verif
 - Repository: `personal_tracker_n8n`.
 - Baseline commit: `b6b5467 feat: initialize financial tracker platform`.
 - Default branch: `main`.
-- Baseline checked on: 2026-09-03, America/Costa_Rica.
+- Baseline checked on: 2026-09-03, America/Costa_Rica. Gmail workstream updated on 2026-09-06; see its validation report.
 - Local status at that check: PostgreSQL, API, web, and n8n healthy; migration and workflow-import jobs exited successfully with code 0.
-- Integration status: API available, PostgreSQL connected, n8n running, Gmail pending.
+- Baseline integration status was Gmail pending. OAuth and real Gmail preview/selected processing were subsequently exercised by the Gmail reconciliation workstream.
 
 Runtime state can change. Re-run `docker compose ps -a` and the health endpoints instead of treating this section as live telemetry.
 
@@ -37,7 +37,7 @@ Update versions only through an explicit dependency task with compatibility rese
 - `apps/web`: Next.js App Router dashboard rendered against the API only.
 - `packages/contracts`: versioned Zod and TypeScript contracts shared by API and web.
 - `packages/database`: Prisma schema, generated client boundary, initial migration, and development-only seed.
-- `automation/n8n`: eight versioned workflows plus validation and connectivity scripts.
+- `automation/n8n`: ten versioned workflows plus validation and connectivity scripts.
 - `tracker` database: `core`, `finance`, `automation`, `habits`, and `health` schemas.
 - `n8n` database: n8n internal state only.
 - Docker networks: a public application edge and an internal data network. PostgreSQL has no host port.
@@ -56,14 +56,29 @@ Imported workflows:
 
 1. `00 - Gmail - Ingestion`
 2. `01 - Email - Router`
-3. `05 - Local - Email Fixture Ingestion`
-4. `10 - Finance - Process Candidate`
-5. `20 - Important Email - Process`
-6. `90 - Review Queue`
-7. `98 - System - Connectivity Check`
-8. `99 - Error Handler`
+3. `02 - Gmail - Reconciliation Preview`
+4. `03 - Gmail - Process Selected Messages`
+5. `05 - Local - Email Fixture Ingestion`
+6. `10 - Finance - Process Candidate`
+7. `20 - Important Email - Process`
+8. `90 - Review Queue`
+9. `98 - System - Connectivity Check`
+10. `99 - Error Handler`
 
-All are inactive by default. The Gmail workflow contains `GMAIL_OAUTH_CREDENTIAL_REQUIRED`; Gmail OAuth has not been configured or validated. The connectivity workflow has verified n8n to API to PostgreSQL without inserting domain data.
+Versioned JSONs remain inactive and contain only `GMAIL_OAUTH_CREDENTIAL_REQUIRED`. The runtime importer preserves the existing encrypted Gmail credential reference, publishes manual webhooks and their dependency closure, and preserves the prior activation of 00. n8n 2.37.4 regular mode rejects import `--activeState=fromJson`; import inactive then publish through CLI. Subworkflows must also be published. Actual Gmail evidence and current limitations are recorded in `gmail-reconciliation-validation.md`.
+
+## Gmail reconciliation workstream
+
+- Isolated branch `codex/gmail-reconciliation`, based on main commit `eef015f3a5ff6e212935ff8fc61b22fe839a274e`.
+- ADR-005 locates sources/runs/previews in core before additive migrations. No EAV extension.
+- The API owns one MIME parser and bank-template adapter, shared by automatic/manual paths. Finance receives a connector-independent candidate.
+- Dashboard configuration, current-month/exact-date preview, explicit selection, polling, history and counters are implemented.
+- Message ID, canonical financial SHA-256 and tenant financial identity prevent duplicates. Conflicts retain a safe proposal in review queue; no financial fields or manual corrections are overwritten.
+- All four migrations passed on existing tracker and a fresh disposable database. A logical private backup preceded the first write.
+- Private HTML-only EML passed eleven structural/extraction checks. Synthetic parser/policy and PostgreSQL integration suites passed.
+- The real preview returned ten unread eligible messages and created no observations/transactions; the first selection created exactly two transactions. Scheduled Gmail polling added eight; reprocessing ten selected messages reported ten duplicates with no new transactions. Final tracker count is ten transactions, ten observations and zero financial reviews. See the validation report.
+- n8n execution inputs use private tmpfs: save=none alone still stored initial inputs in 2.37.4. A new real ten-message replay produced zero new execution_data payloads. Fourteen task-owned soft-deleted test executions were removed; earlier user history was preserved. Compose pins regular mode and blocks scale until transient shared storage is designed.
+- `.private/` is excluded from Git, Docker build context and formatting. Real messages, tokens, credential IDs and financial values must never be copied into reports or fixtures.
 
 ## Security baseline
 
@@ -76,12 +91,9 @@ All are inactive by default. The Gmail workflow contains `GMAIL_OAUTH_CREDENTIAL
 
 ## Deliberately unimplemented
 
-- Real Gmail OAuth and processing of real mail.
-- Bank-specific parsers or extraction rules; anonymized fixtures are required first.
-- Raw `.eml` parsing; the local workflow currently accepts the normalized email contract.
 - Production authentication, authorization enforcement, and RLS activation.
 - Public rate limiting and a durable application audit log.
-- Automated retention/redaction of stored email bodies and encrypted token storage backed by KMS/HSM.
+- Production retention policy for financial previews and legacy data; encrypted token storage backed by KMS/HSM. New Gmail ingestion stores no bodies or attachments. Reducing the pre-existing OAuth grant to readonly needs a Google reconnection; its editor had Custom Scopes disabled.
 - Garmin, health domain models, MCP server, Gmail add-on, and Gmail Pub/Sub.
 - Public production deployment, certificate issuance, and runtime validation of the scale profile.
 - Full observability, SAST/SCA, container scanning, SBOM generation, and image signing.
@@ -92,9 +104,9 @@ All are inactive by default. The Gmail workflow contains `GMAIL_OAUTH_CREDENTIAL
 - n8n currently uses one internal service key and supplies tenant context in payloads. A commercial design must constrain which tenants each machine identity may address.
 - RLS is not active, and migration ownership is not yet separated from the runtime database role. Enabling RLS without that split can leave owner bypasses.
 - Some foreign keys use resource IDs without composite tenant constraints, so database-level prevention of cross-tenant relationships is incomplete.
-- `automation.classifications` and `automation.action_runs` do not carry a direct `tenant_id`; this blocks safe tenant-scoped autonomous actions when no source event exists.
+- `automation.classifications` still lacks direct tenant_id. `automation.action_runs` now requires tenant_id, tenant-scoped idempotency and a composite event FK; the error handler supplies tenant explicitly.
 - Integration uniqueness currently permits one `(tenant, provider, type)` tuple. Decide whether multiple accounts per provider are required before commercial connector work.
-- There is no automated test suite or CI pipeline yet. Negative cross-tenant tests are mandatory before multiuser release.
+- Gmail has parser, policy, workflow and disposable PostgreSQL integration tests, including cross-tenant negatives. A repository CI pipeline and production authorization tests remain pending.
 
 Recommended decision order: product/tenant model, identity and sessions, tenant isolation and RLS, privacy and retention, connector credential boundaries, deployment/recovery, then observability and beta scope. Capture accepted choices in new ADRs rather than editing the existing accepted ADRs.
 

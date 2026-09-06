@@ -1,0 +1,584 @@
+{
+  "id": "10000000-0000-4000-8000-000000000003",
+  "name": "03 - Gmail - Process Selected Messages",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gmail-process-selected",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "00000003-0000-4000-8000-000000000001",
+      "name": "Internal webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        340,
+        300
+      ],
+      "webhookId": "tracker-gmail-process-selected",
+      "notes": "Only the caller-supplied service header is forwarded to the API context endpoint. Its constant-time guard must succeed before any Gmail action. Payload/header execution storage is disabled."
+    },
+    {
+      "parameters": {
+        "jsCode": "const body=$json.body ?? {}; const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i; if(!uuid.test(body.tenantId ?? '') || !uuid.test(body.runId ?? '')) throw new Error('INVALID_SYNC_REQUEST'); return [{json:{tenantId:body.tenantId,runId:body.runId,correlationId:body.correlationId ?? body.runId}}];"
+      },
+      "id": "00000003-0000-4000-8000-000000000002",
+      "name": "Validate run identifiers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $json.runId + '/context?tenantId=' + $json.tenantId) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $('Internal webhook').first().json.headers['x-internal-api-key'] ?? '' }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId ?? $json.run?.tenantId ?? $('Validate run identifiers').first().json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.correlationId ?? $execution.id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000003-0000-4000-8000-000000000003",
+      "name": "Load authorized run context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $('Load authorized run context').first().json.run.id + '/progress') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Load authorized run context').first().json.run.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $('Validate run identifiers').first().json.correlationId }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,status:'processing'}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000003-0000-4000-8000-000000000004",
+      "name": "Report run progress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ids=$('Load authorized run context').first().json.messageIds ?? [];if(ids.length>10)throw new Error('SELECTION_LIMIT_EXCEEDED');return ids.length?ids.map(id=>({json:{messageId:id,empty:false}})):[{json:{empty:true}}];"
+      },
+      "id": "00000003-0000-4000-8000-000000000005",
+      "name": "Only explicitly selected pending IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000003-0000-4000-8000-000000000006",
+      "name": "Selection already finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + encodeURIComponent($json.messageId) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "full"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "00000003-0000-4000-8000-000000000007",
+      "name": "Recheck selected Gmail message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1660,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_OAUTH_CREDENTIAL_REQUIRED",
+          "name": "GMAIL_OAUTH_CREDENTIAL_REQUIRED"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "notes": "Read-only Gmail GET. No modify/mark-read operation and no attachment fetch."
+    },
+    {
+      "parameters": {
+        "jsCode": "const all=$input.all();if(all.some(i=>i.json.statusCode!==200||!i.json.body?.id))return [{json:{failed:true}}];return all.map(i=>({json:{failed:false,tenantId:$('Load authorized run context').first().json.run.tenantId,runId:$('Load authorized run context').first().json.run.id,mode:'selected',message:i.json.body}}));"
+      },
+      "id": "00000003-0000-4000-8000-000000000008",
+      "name": "Check every selected retrieval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000003-0000-4000-8000-000000000009",
+      "name": "Selected retrieval failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "10000000-0000-4000-8000-000000000001",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "00000003-0000-4000-8000-000000000010",
+      "name": "Execute shared email router",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2320,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{tenantId:$('Load authorized run context').first().json.run.tenantId,processed:$input.all().length,failed:$input.all().some(i=>i.json.failed===true)}}];"
+      },
+      "id": "00000003-0000-4000-8000-000000000011",
+      "name": "Sanitize batch completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000003-0000-4000-8000-000000000012",
+      "name": "Any reconciliation failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $('Load authorized run context').first().json.run.id + '/complete') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId ?? $json.run?.tenantId ?? $('Validate run identifiers').first().json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.correlationId ?? $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000003-0000-4000-8000-000000000013",
+      "name": "Complete selected run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $('Load authorized run context').first().json.run.id + '/complete') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId ?? $json.run?.tenantId ?? $('Validate run identifiers').first().json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.correlationId ?? $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:'GMAIL_EXECUTION_FAILED'}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000003-0000-4000-8000-000000000014",
+      "name": "Report sanitized failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3200,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Internal webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate run identifiers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate run identifiers": {
+      "main": [
+        [
+          {
+            "node": "Load authorized run context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load authorized run context": {
+      "main": [
+        [
+          {
+            "node": "Report run progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report run progress": {
+      "main": [
+        [
+          {
+            "node": "Only explicitly selected pending IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only explicitly selected pending IDs": {
+      "main": [
+        [
+          {
+            "node": "Selection already finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selection already finished?": {
+      "main": [
+        [
+          {
+            "node": "Complete selected run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Recheck selected Gmail message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recheck selected Gmail message": {
+      "main": [
+        [
+          {
+            "node": "Check every selected retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check every selected retrieval": {
+      "main": [
+        [
+          {
+            "node": "Selected retrieval failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selected retrieval failed?": {
+      "main": [
+        [
+          {
+            "node": "Report sanitized failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute shared email router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute shared email router": {
+      "main": [
+        [
+          {
+            "node": "Sanitize batch completion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report sanitized failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize batch completion": {
+      "main": [
+        [
+          {
+            "node": "Any reconciliation failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any reconciliation failed?": {
+      "main": [
+        [
+          {
+            "node": "Report sanitized failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Complete selected run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "10000000-0000-4000-8000-000000000099",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "versionId": "00000003-0000-4000-8000-000000000099",
+  "tags": []
+}

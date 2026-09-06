@@ -14,3 +14,7 @@ n8n-data/
 postgres-data/
 certificates/
 documentation/
+.private/
+dist-tests/
+__pycache__/
+*.pyc

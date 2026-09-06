@@ -19,16 +19,16 @@ model Tenant {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships    TenantMembership[]
-  integrations   Integration[]
-  sourceEvents   SourceEvent[]
-  accounts       Account[]
-  merchants      Merchant[]
-  categories     Category[]
-  transactions   Transaction[]
-  recurring      RecurringPayment[]
-  reviewItems    ReviewQueue[]
-  notifications  Notification[]
+  memberships   TenantMembership[]
+  integrations  Integration[]
+  sourceEvents  SourceEvent[]
+  accounts      Account[]
+  merchants     Merchant[]
+  categories    Category[]
+  transactions  Transaction[]
+  recurring     RecurringPayment[]
+  reviewItems   ReviewQueue[]
+  notifications Notification[]
 
   @@map("tenants")
   @@schema("core")
@@ -42,17 +42,17 @@ model User {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships TenantMembership[]
-  assignedReviews ReviewQueue[] @relation("ReviewAssignee")
+  memberships     TenantMembership[]
+  assignedReviews ReviewQueue[]      @relation("ReviewAssignee")
 
   @@map("users")
   @@schema("core")
 }
 
 model TenantMembership {
-  tenantId String   @map("tenant_id") @db.Uuid
-  userId   String   @map("user_id") @db.Uuid
-  role     String   @default("member") @db.VarChar(32)
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String   @default("member") @db.VarChar(32)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -79,6 +79,7 @@ model Integration {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, provider, type])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@map("integrations")
   @@schema("core")
@@ -107,6 +108,7 @@ model SourceEvent {
   notifications   Notification[]
 
   @@unique([tenantId, source, externalId])
+  @@unique([tenantId, id])
   @@index([tenantId, source, occurredAt(sort: Desc)])
   @@index([tenantId, status, receivedAt(sort: Desc)])
   @@index([payloadHash])
@@ -118,19 +120,20 @@ model Account {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
   institutionName  String   @map("institution_name") @db.VarChar(160)
-  alias             String   @db.VarChar(160)
-  accountType       String   @map("account_type") @db.VarChar(64)
+  alias            String   @db.VarChar(160)
+  accountType      String   @map("account_type") @db.VarChar(64)
   maskedIdentifier String?  @map("masked_identifier") @db.VarChar(32)
-  currency          String   @db.Char(3)
-  status            String   @default("active") @db.VarChar(32)
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  currency         String   @db.Char(3)
+  status           String   @default("active") @db.VarChar(32)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   transactions Transaction[]
   recurring    RecurringPayment[]
 
   @@unique([tenantId, institutionName, maskedIdentifier])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@map("accounts")
   @@schema("finance")
@@ -180,26 +183,29 @@ model Category {
 }
 
 model Transaction {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String    @map("tenant_id") @db.Uuid
-  sourceEventId     String    @map("source_event_id") @db.Uuid
-  accountId         String?   @map("account_id") @db.Uuid
-  merchantId        String?   @map("merchant_id") @db.Uuid
-  categoryId        String?   @map("category_id") @db.Uuid
-  externalReference String?   @map("external_reference") @db.VarChar(512)
-  direction         String    @db.VarChar(16)
-  transactionType   String    @map("transaction_type") @db.VarChar(64)
-  amount            Decimal   @db.Decimal(20, 4)
-  currency          String    @db.Char(3)
-  description       String    @db.VarChar(1000)
-  occurredAt        DateTime  @map("occurred_at") @db.Timestamptz(6)
-  postedAt          DateTime? @map("posted_at") @db.Timestamptz(6)
-  confidence        Decimal?  @db.Decimal(5, 4)
-  requiresReview    Boolean   @default(false) @map("requires_review")
-  status            String    @default("pending") @db.VarChar(32)
-  rawMetadata       Json      @default("{}") @map("raw_metadata") @db.JsonB
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  sourceEventId      String    @map("source_event_id") @db.Uuid
+  accountId          String?   @map("account_id") @db.Uuid
+  merchantId         String?   @map("merchant_id") @db.Uuid
+  categoryId         String?   @map("category_id") @db.Uuid
+  reconciliationKey  String?   @map("reconciliation_key") @db.VarChar(64)
+  financialHash      String?   @map("financial_hash") @db.Char(64)
+  manuallyModifiedAt DateTime? @map("manually_modified_at") @db.Timestamptz(6)
+  externalReference  String?   @map("external_reference") @db.VarChar(512)
+  direction          String    @db.VarChar(16)
+  transactionType    String    @map("transaction_type") @db.VarChar(64)
+  amount             Decimal   @db.Decimal(20, 4)
+  currency           String    @db.Char(3)
+  description        String    @db.VarChar(1000)
+  occurredAt         DateTime  @map("occurred_at") @db.Timestamptz(6)
+  postedAt           DateTime? @map("posted_at") @db.Timestamptz(6)
+  confidence         Decimal?  @db.Decimal(5, 4)
+  requiresReview     Boolean   @default(false) @map("requires_review")
+  status             String    @default("pending") @db.VarChar(32)
+  rawMetadata        Json      @default("{}") @map("raw_metadata") @db.JsonB
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sourceEvent SourceEvent @relation(fields: [sourceEventId], references: [id], onDelete: Restrict)
@@ -207,6 +213,7 @@ model Transaction {
   merchant    Merchant?   @relation(fields: [merchantId], references: [id], onDelete: SetNull)
   category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  @@unique([tenantId, reconciliationKey])
   @@index([tenantId, occurredAt(sort: Desc)])
   @@index([tenantId, status, occurredAt(sort: Desc)])
   @@index([tenantId, accountId, occurredAt(sort: Desc)])
@@ -219,20 +226,20 @@ model Transaction {
 }
 
 model RecurringPayment {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String    @map("tenant_id") @db.Uuid
-  accountId        String?   @map("account_id") @db.Uuid
-  merchantId       String?   @map("merchant_id") @db.Uuid
-  name             String    @db.VarChar(255)
-  expectedAmount   Decimal?  @map("expected_amount") @db.Decimal(20, 4)
-  currency         String    @db.Char(3)
-  frequency        String    @db.VarChar(32)
-  nextExpectedAt   DateTime? @map("next_expected_at") @db.Timestamptz(6)
-  lastChargedAt    DateTime? @map("last_charged_at") @db.Timestamptz(6)
-  status           String    @default("active") @db.VarChar(32)
-  metadata         Json      @default("{}") @db.JsonB
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  accountId      String?   @map("account_id") @db.Uuid
+  merchantId     String?   @map("merchant_id") @db.Uuid
+  name           String    @db.VarChar(255)
+  expectedAmount Decimal?  @map("expected_amount") @db.Decimal(20, 4)
+  currency       String    @db.Char(3)
+  frequency      String    @db.VarChar(32)
+  nextExpectedAt DateTime? @map("next_expected_at") @db.Timestamptz(6)
+  lastChargedAt  DateTime? @map("last_charged_at") @db.Timestamptz(6)
+  status         String    @default("active") @db.VarChar(32)
+  metadata       Json      @default("{}") @db.JsonB
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   account  Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
@@ -263,9 +270,10 @@ model Classification {
 
 model ActionRun {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
   sourceEventId  String?   @map("source_event_id") @db.Uuid
   actionType     String    @map("action_type") @db.VarChar(128)
-  idempotencyKey String    @unique @map("idempotency_key") @db.VarChar(255)
+  idempotencyKey String    @map("idempotency_key") @db.VarChar(255)
   status         String    @default("pending") @db.VarChar(32)
   attemptCount   Int       @default(0) @map("attempt_count")
   input          Json      @default("{}") @db.JsonB
@@ -278,6 +286,8 @@ model ActionRun {
 
   sourceEvent SourceEvent? @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
 
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt(sort: Desc)])
   @@index([sourceEventId, status])
   @@index([status, createdAt(sort: Desc)])
   @@map("action_runs")
@@ -285,16 +295,18 @@ model ActionRun {
 }
 
 model ReviewQueue {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String    @map("tenant_id") @db.Uuid
-  sourceEventId String    @map("source_event_id") @db.Uuid
-  reason        String    @db.VarChar(1000)
-  priority      String    @default("normal") @db.VarChar(16)
-  status        String    @default("pending") @db.VarChar(32)
-  assignedTo    String?   @map("assigned_to") @db.Uuid
-  resolution    Json?     @db.JsonB
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(6)
+  id                         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                   String    @map("tenant_id") @db.Uuid
+  sourceEventId              String    @map("source_event_id") @db.Uuid
+  reason                     String    @db.VarChar(1000)
+  priority                   String    @default("normal") @db.VarChar(16)
+  status                     String    @default("pending") @db.VarChar(32)
+  assignedTo                 String?   @map("assigned_to") @db.Uuid
+  proposedFinancialCandidate Json?     @map("proposed_financial_candidate") @db.JsonB
+  proposedContentHash        String?   @map("proposed_content_hash") @db.Char(64)
+  resolution                 Json?     @db.JsonB
+  createdAt                  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt                 DateTime? @map("resolved_at") @db.Timestamptz(6)
 
   tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sourceEvent SourceEvent @relation(fields: [sourceEventId], references: [id], onDelete: Cascade)
@@ -324,4 +336,80 @@ model Notification {
   @@index([tenantId, status, scheduledAt])
   @@map("notifications")
   @@schema("automation")
+}
+
+// Lead integration proposal. Add SQL composite tenant FKs and partial unique active-run lock.
+model EmailSource {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  integrationId        String    @map("integration_id") @db.Uuid
+  displayName          String    @map("display_name") @db.VarChar(160)
+  senderAddress        String    @map("sender_address") @db.VarChar(320)
+  institutionName      String    @map("institution_name") @db.VarChar(160)
+  adapterKey           String    @map("adapter_key") @db.VarChar(128)
+  accountId            String?   @map("account_id") @db.Uuid
+  defaultCurrency      String?   @map("default_currency") @db.Char(3)
+  autoIngestionEnabled Boolean   @default(false) @map("auto_ingestion_enabled")
+  manualSyncEnabled    Boolean   @default(true) @map("manual_sync_enabled")
+  status               String    @default("active") @db.VarChar(32)
+  lastSyncAt           DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastResult           String?   @map("last_result") @db.VarChar(64)
+  lastErrorCode        String?   @map("last_error_code") @db.VarChar(64)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, integrationId, senderAddress])
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@map("email_sources")
+  @@schema("core")
+}
+
+model EmailSyncRun {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  sourceId       String    @map("source_id") @db.Uuid
+  idempotencyKey String    @map("idempotency_key") @db.VarChar(128)
+  correlationId  String    @map("correlation_id") @db.VarChar(128)
+  periodMode     String    @map("period_mode") @db.VarChar(16)
+  periodMonth    String    @map("period_month") @db.Char(7)
+  exactDate      String?   @map("exact_date") @db.Char(10)
+  status         String    @default("pending") @db.VarChar(32)
+  result         Json      @default("{}") @db.JsonB
+  lastErrorCode  String?   @map("last_error_code") @db.VarChar(64)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, sourceId])
+  @@index([tenantId, sourceId, createdAt(sort: Desc)])
+  @@map("email_sync_runs")
+  @@schema("core")
+}
+
+model EmailSyncCandidate {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  runId            String   @map("run_id") @db.Uuid
+  sourceId         String   @map("source_id") @db.Uuid
+  messageId        String   @map("message_id") @db.VarChar(512)
+  threadId         String?  @map("thread_id") @db.VarChar(512)
+  receivedAt       DateTime @map("received_at") @db.Timestamptz(6)
+  contentHash      String   @map("content_hash") @db.Char(64)
+  classification   String   @db.VarChar(32)
+  eligible         Boolean  @default(false)
+  selected         Boolean  @default(false)
+  candidate        Json?    @db.JsonB
+  reasonCodes      Json     @default("[]") @map("reason_codes") @db.JsonB
+  processingResult Json?    @map("processing_result") @db.JsonB
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, runId, messageId])
+  @@index([tenantId, runId, selected])
+  @@map("email_sync_candidates")
+  @@schema("core")
 }

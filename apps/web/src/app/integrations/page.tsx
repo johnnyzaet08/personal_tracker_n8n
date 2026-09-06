@@ -2,15 +2,20 @@ import type { PaginatedResponse } from '@tracker/contracts';
 import { Database, Mail, Network, ServerCog } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
+import { EmailSourcesManager } from '@/components/email-sources-manager';
+import { EmailFeedback } from '@/components/email-feedback';
+import { loadEmailSourceOptions, loadEmailSources } from './email-actions';
 import { apiGet } from '@/lib/api';
 import type { IntegrationRecord, IntegrationStatus } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function IntegrationsPage() {
-  const [status, records] = await Promise.all([
+  const [status, records, sources, sourceOptions] = await Promise.all([
     apiGet<IntegrationStatus>('/api/v1/integrations/status'),
     apiGet<PaginatedResponse<IntegrationRecord>>('/api/v1/integrations'),
+    loadEmailSources(),
+    loadEmailSourceOptions(),
   ]);
   const items = [
     {
@@ -61,11 +66,20 @@ export default async function IntegrationsPage() {
           );
         })}
       </section>
-      <section className="panel disclosure">
+      {sources.ok && sourceOptions.ok ? (
+        <EmailSourcesManager initialSources={sources.data} options={sourceOptions.data} />
+      ) : (
+        <section className="panel">
+          <h2>Fuentes de correo</h2>
+          <EmailFeedback error={!sources.ok ? sources : !sourceOptions.ok ? sourceOptions : null} />
+          <p>Recarga la página para volver a consultar la configuración.</p>
+        </section>
+      )}
+      <section className="panel disclosure email-integration-detail">
         <h2>Estado de Gmail</h2>
         <p>
-          El workflow está importado e inactivo. Requiere seleccionar manualmente una credencial
-          OAuth2 válida en n8n antes de activarlo.
+          Las fuentes activas determinan qué remitentes se pueden analizar. La búsqueda manual
+          conserva el estado no leído y requiere seleccionar los mensajes antes de procesarlos.
         </p>
         <dl>
           <div>
@@ -76,7 +90,9 @@ export default async function IntegrationsPage() {
             <dt>Última sincronización</dt>
             <dd>
               {status.gmailLastSyncAt
-                ? new Date(status.gmailLastSyncAt).toLocaleString('es-CR')
+                ? new Date(status.gmailLastSyncAt).toLocaleString('es-CR', {
+                    timeZone: 'America/Costa_Rica',
+                  })
                 : 'Nunca'}
             </dd>
           </div>
