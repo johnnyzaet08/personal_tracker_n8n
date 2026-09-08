@@ -1,0 +1,632 @@
+{
+  "id": "10000000-0000-4000-8000-000000000002",
+  "name": "02 - Gmail - Reconciliation Preview",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gmail-reconciliation-preview",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000001",
+      "name": "Internal webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        340,
+        300
+      ],
+      "webhookId": "tracker-gmail-reconciliation-preview",
+      "notes": "Only the caller-supplied service header is forwarded to the API context endpoint. Its constant-time guard must succeed before any Gmail action. Payload/header execution storage is disabled."
+    },
+    {
+      "parameters": {
+        "jsCode": "const body=$json.body ?? {}; const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i; if(!uuid.test(body.tenantId ?? '') || !uuid.test(body.runId ?? '')) throw new Error('INVALID_SYNC_REQUEST'); return [{json:{tenantId:body.tenantId,runId:body.runId,correlationId:body.correlationId ?? body.runId}}];"
+      },
+      "id": "00000002-0000-4000-8000-000000000002",
+      "name": "Validate run identifiers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $json.runId + '/context?tenantId=' + $json.tenantId) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $('Internal webhook').first().json.headers['x-internal-api-key'] ?? '' }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId ?? $json.run?.tenantId ?? $('Validate run identifiers').first().json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.correlationId ?? $execution.id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000003",
+      "name": "Load authorized run context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $('Load authorized run context').first().json.run.id + '/progress') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Load authorized run context').first().json.run.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $('Validate run identifiers').first().json.correlationId }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,status:'fetching'}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000004",
+      "name": "Report run progress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Load authorized run context').first().json.query }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "10"
+            },
+            {
+              "name": "labelIds",
+              "value": "UNREAD"
+            },
+            {
+              "name": "includeSpamTrash",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000005",
+      "name": "List ten unread messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_OAUTH_CREDENTIAL_REQUIRED",
+          "name": "GMAIL_OAUTH_CREDENTIAL_REQUIRED"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "notes": "Read-only Gmail GET. No modify/mark-read operation and no attachment fetch."
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$json;if(r.statusCode!==200)return [{json:{failed:true}}]; const ids=(r.body?.messages ?? []).slice(0,10).map(m=>m.id).filter(id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id));return ids.length?ids.map(id=>({json:{messageId:id,failed:false,empty:false}})):[{json:{failed:false,empty:true}}];"
+      },
+      "id": "00000002-0000-4000-8000-000000000006",
+      "name": "Validate list and bound message IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000002-0000-4000-8000-000000000007",
+      "name": "Gmail list failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000002-0000-4000-8000-000000000008",
+      "name": "No unread messages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $('Load authorized run context').first().json.run.id + '/candidates') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId ?? $json.run?.tenantId ?? $('Validate run identifiers').first().json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.correlationId ?? $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,messages:[]}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000009",
+      "name": "Store empty preview",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + encodeURIComponent($json.messageId) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "full"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000010",
+      "name": "Retrieve preview message content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2320,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_OAUTH_CREDENTIAL_REQUIRED",
+          "name": "GMAIL_OAUTH_CREDENTIAL_REQUIRED"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "notes": "Read-only Gmail GET. No modify/mark-read operation and no attachment fetch."
+    },
+    {
+      "parameters": {
+        "jsCode": "const all=$input.all(); const failed=all.some(i=>i.json.statusCode!==200||!i.json.body?.id); return [{json:{tenantId:$('Load authorized run context').first().json.run.tenantId,failed,messages:failed?[]:all.map(i=>i.json.body)}}];"
+      },
+      "id": "00000002-0000-4000-8000-000000000011",
+      "name": "Aggregate transient preview batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition",
+              "leftValue": "={{ $json.failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000002-0000-4000-8000-000000000012",
+      "name": "Gmail retrieval failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $('Load authorized run context').first().json.run.id + '/candidates') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId ?? $json.run?.tenantId ?? $('Validate run identifiers').first().json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.correlationId ?? $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({tenantId:$json.tenantId,messages:$json.messages}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000013",
+      "name": "Parse and store minimal preview",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_INTERNAL_URL + ('/internal/v1/email-sync-runs/' + $('Load authorized run context').first().json.run.id + '/complete') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId ?? $json.run?.tenantId ?? $('Validate run identifiers').first().json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.correlationId ?? $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:'GMAIL_EXECUTION_FAILED'}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "00000002-0000-4000-8000-000000000014",
+      "name": "Report sanitized failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3200,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Internal webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate run identifiers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate run identifiers": {
+      "main": [
+        [
+          {
+            "node": "Load authorized run context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load authorized run context": {
+      "main": [
+        [
+          {
+            "node": "Report run progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report run progress": {
+      "main": [
+        [
+          {
+            "node": "List ten unread messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List ten unread messages": {
+      "main": [
+        [
+          {
+            "node": "Validate list and bound message IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate list and bound message IDs": {
+      "main": [
+        [
+          {
+            "node": "Gmail list failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail list failed?": {
+      "main": [
+        [
+          {
+            "node": "Report sanitized failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No unread messages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No unread messages?": {
+      "main": [
+        [
+          {
+            "node": "Store empty preview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retrieve preview message content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve preview message content": {
+      "main": [
+        [
+          {
+            "node": "Aggregate transient preview batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate transient preview batch": {
+      "main": [
+        [
+          {
+            "node": "Gmail retrieval failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail retrieval failed?": {
+      "main": [
+        [
+          {
+            "node": "Report sanitized failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse and store minimal preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "10000000-0000-4000-8000-000000000099",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "versionId": "00000002-0000-4000-8000-000000000099",
+  "tags": []
+}

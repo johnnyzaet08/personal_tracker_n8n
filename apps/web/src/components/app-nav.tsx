@@ -6,7 +6,7 @@ import { dashboardModules } from '@/lib/modules';
 
 export function AppNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
-  const visible = compact ? dashboardModules.slice(0, 5) : dashboardModules;
+  const visible = dashboardModules;
   return (
     <div className={compact ? 'nav-list compact-nav' : 'nav-list'}>
       {visible

@@ -15,8 +15,22 @@ export class AutomationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async ingestSourceEvent(event: SourceEvent): Promise<object> {
-    const payload = JSON.parse(JSON.stringify(event)) as Prisma.InputJsonValue;
-    const payloadHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+    // Legacy connectors retain only an allowlist; email bodies are transient input.
+    const payload = {
+      schemaVersion: event.schemaVersion,
+      sender: event.sender.address.trim().toLowerCase(),
+      receivedAt: event.receivedAt,
+    };
+    const payloadHash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          sender: payload.sender,
+          occurredAt: event.occurredAt,
+          textBody: event.textBody ?? '',
+          htmlBody: event.htmlBody ?? '',
+        }),
+      )
+      .digest('hex');
     const existing = await this.prisma.client.sourceEvent.findUnique({
       where: {
         tenantId_source_externalId: {
@@ -87,7 +101,6 @@ export class AutomationService {
         requiresReview: candidate.requiresReview,
         status: candidate.requiresReview ? 'pending_review' : 'posted',
         rawMetadata: {
-          ...candidate.rawMetadata,
           adapter: candidate.adapter,
           candidateId: candidate.candidateId,
         } as Prisma.InputJsonValue,
@@ -132,14 +145,30 @@ export class AutomationService {
   }
 
   async recordAction(request: ActionRequest): Promise<object> {
+    if (
+      request.sourceEventId &&
+      !(await this.prisma.client.sourceEvent.findFirst({
+        where: { id: request.sourceEventId, tenantId: request.tenantId },
+        select: { id: true },
+      }))
+    )
+      throw new NotFoundException('Source event not found for this tenant');
     const record = await this.prisma.client.actionRun.upsert({
-      where: { idempotencyKey: request.idempotencyKey },
+      where: {
+        tenantId_idempotencyKey: {
+          tenantId: request.tenantId,
+          idempotencyKey: request.idempotencyKey,
+        },
+      },
       create: {
+        tenantId: request.tenantId,
         sourceEventId: request.sourceEventId,
         actionType: request.actionType,
         idempotencyKey: request.idempotencyKey,
         status: request.status,
-        input: request.input as Prisma.InputJsonValue,
+        input: {},
+        errorCode:
+          request.actionType === 'n8n.workflow.error' ? 'WORKFLOW_EXECUTION_FAILED' : undefined,
         attemptCount: request.status === 'running' ? 1 : 0,
         startedAt: request.status === 'running' ? new Date() : undefined,
       },

@@ -1,0 +1,39 @@
+From: Banco de Prueba <alerts@bank.example>
+To: Sample Customer <customer@example.test>
+Date: Thu, 3 Sep 2026 11:15:00 -0600
+Subject: Aviso de compra sintético
+Message-ID: <synthetic-purchase@example.test>
+Authentication-Results: mx.google.com;
+ spf=pass smtp.mailfrom=alerts@bank.example;
+ dkim=pass header.i=@bank.example;
+ dmarc=pass header.from=bank.example
+Received-SPF: pass (synthetic fixture)
+DKIM-Signature: v=1; a=rsa-sha256; d=bank.example; s=synthetic; b=NOT-A-SIGNATURE
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="synthetic-related-boundary"
+
+--synthetic-related-boundary
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><style>td { padding: 4px }</style></head><body>
+<table><tr><td><img src=3D"cid:synthetic-logo" alt=3D"" /></td></tr>
+<tr><td><h2>Transacci=C3=B3n:</h2><h5>************4242</h5></td></tr>
+<tr><td><table><tbody>
+<tr><td>Comercio:</td><td>TIENDA SINT=C3=89TICA</td></tr>
+<tr><td>Fecha:</td><td>Sep 3, 2026 , 11:15</td></tr>
+<tr><td>Autorizaci=C3=B3n:</td><td>654321</td></tr>
+<tr><td>Referencia:</td><td>777888999000</td></tr>
+<tr><td>Tipo de Transacci=C3=B3n:</td><td>COMPRA</td></tr>
+<tr><td>Monto:</td><td>CRC 1,234.50</td></tr>
+</tbody></table></td></tr></table>
+<script>throw new Error('Never execute email HTML');</script>
+</body></html>
+--synthetic-related-boundary
+Content-Type: image/jpeg; name="synthetic-logo.jpg"
+Content-Transfer-Encoding: base64
+Content-ID: <synthetic-logo>
+Content-Disposition: inline; filename="synthetic-logo.jpg"
+
+/9j/2Q==
+--synthetic-related-boundary--
