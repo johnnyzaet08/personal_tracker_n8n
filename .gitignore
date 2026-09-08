@@ -15,6 +15,3 @@ postgres-data/
 certificates/
 documentation/
 .private/
-dist-tests/
-__pycache__/
-*.pyc
