@@ -12,22 +12,25 @@ Se revoca acceso `PUBLIC` a ambas bases. PostgreSQL no publica puerto al host. `
 
 ## Tablas
 
-| Schema     | Tabla              | Papel                                |
-| ---------- | ------------------ | ------------------------------------ |
-| core       | tenants            | límite de aislamiento, zona y moneda |
-| core       | users              | identidad normalizada                |
-| core       | tenant_memberships | relación y rol por tenant            |
-| core       | integrations       | estado y metadata sin secretos       |
-| core       | source_events      | entrada idempotente de proveedores   |
-| finance    | accounts           | cuentas financieras                  |
-| finance    | merchants          | normalización de comercios           |
-| finance    | categories         | árbol de categorías                  |
-| finance    | transactions       | movimientos en `NUMERIC(20,4)`       |
-| finance    | recurring_payments | patrón recurrente inicial            |
-| automation | classifications    | resultados versionados               |
-| automation | action_runs        | acciones con idempotency key         |
-| automation | review_queue       | decisiones humanas pendientes        |
-| automation | notifications      | entregas futuras por canal           |
+| Schema     | Tabla                 | Papel                                   |
+| ---------- | --------------------- | --------------------------------------- |
+| core       | tenants               | límite de aislamiento, zona y moneda    |
+| core       | users                 | identidad normalizada                   |
+| core       | tenant_memberships    | relación y rol por tenant               |
+| core       | integrations          | estado y metadata sin secretos          |
+| core       | source_events         | entrada idempotente de proveedores      |
+| finance    | accounts              | cuentas financieras                     |
+| finance    | merchants             | normalización de comercios              |
+| finance    | categories            | árbol de categorías                     |
+| finance    | transactions          | movimientos en `NUMERIC(20,4)`          |
+| finance    | recurring_payments    | patrón recurrente inicial               |
+| finance    | recurring_obligations | compromiso mensual y pago efectivo      |
+| finance    | monthly_budgets       | ingreso base planificado por mes/moneda |
+| finance    | budget_allocations    | porcentajes históricos por grupo        |
+| automation | classifications       | resultados versionados                  |
+| automation | action_runs           | acciones con idempotency key            |
+| automation | review_queue          | decisiones humanas pendientes           |
+| automation | notifications         | entregas futuras por canal              |
 
 Todos los timestamps usan `TIMESTAMPTZ(6)`. UUIDs usan `gen_random_uuid()` y los IDs de source event pueden venir del contrato. Triggers compartidos mantienen `updated_at` también ante mantenimiento SQL.
 

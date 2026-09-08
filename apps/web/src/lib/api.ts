@@ -31,6 +31,28 @@ export async function apiGet<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function apiWrite<T>(
+  path: string,
+  method: 'POST' | 'PATCH',
+  body: unknown,
+): Promise<T> {
+  const tenantId = process.env.LOCAL_TENANT_ID;
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    method,
+    cache: 'no-store',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'x-correlation-id': randomUUID(),
+      ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok)
+    throw new ApiError(`La API respondió con estado ${response.status}`, response.status);
+  return (await response.json()) as T;
+}
+
 export function queryString(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (value) search.set(key, value);

@@ -21,6 +21,8 @@ export interface CategoryRecord {
   color: string | null;
   icon: string | null;
   status: string;
+  budgetGroup: 'savings' | 'needs' | 'provisions' | 'play' | null;
+  spent?: string;
 }
 export interface RecurringRecord {
   id: string;

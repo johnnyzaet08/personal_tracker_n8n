@@ -23,7 +23,7 @@ async function bootstrap(): Promise<void> {
       .getOrThrow<string>('CORS_ORIGINS')
       .split(',')
       .map((origin) => origin.trim()),
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['content-type', 'x-correlation-id', 'x-tenant-id', 'x-internal-api-key'],
     exposedHeaders: ['x-correlation-id'],
   });

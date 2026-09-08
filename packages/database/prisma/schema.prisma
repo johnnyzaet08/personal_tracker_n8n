@@ -27,6 +27,8 @@ model Tenant {
   categories     Category[]
   transactions   Transaction[]
   recurring      RecurringPayment[]
+  obligations    RecurringObligation[]
+  monthlyBudgets MonthlyBudget[]
   reviewItems    ReviewQueue[]
   notifications  Notification[]
 
@@ -165,6 +167,7 @@ model Category {
   color     String?  @db.VarChar(16)
   icon      String?  @db.VarChar(64)
   status    String   @default("active") @db.VarChar(32)
+  budgetGroup String? @map("budget_group") @db.VarChar(32)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -172,10 +175,46 @@ model Category {
   parent       Category?     @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children     Category[]    @relation("CategoryTree")
   transactions Transaction[]
+  recurring    RecurringPayment[]
+  obligations  RecurringObligation[]
 
   @@unique([tenantId, slug])
   @@index([tenantId, parentId, status])
   @@map("categories")
+  @@schema("finance")
+}
+
+model MonthlyBudget {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  period     String   @db.Char(7)
+  currency   String   @db.Char(3)
+  incomeBase Decimal  @map("income_base") @db.Decimal(20, 4)
+  status     String   @default("active") @db.VarChar(32)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  allocations BudgetAllocation[]
+
+  @@unique([tenantId, period, currency])
+  @@index([tenantId, period])
+  @@map("monthly_budgets")
+  @@schema("finance")
+}
+
+model BudgetAllocation {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  budgetId   String   @map("budget_id") @db.Uuid
+  groupKey   String   @map("group_key") @db.VarChar(32)
+  percentage Decimal  @db.Decimal(7, 4)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  budget MonthlyBudget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, groupKey])
+  @@map("budget_allocations")
   @@schema("finance")
 }
 
@@ -206,6 +245,7 @@ model Transaction {
   account     Account?    @relation(fields: [accountId], references: [id], onDelete: SetNull)
   merchant    Merchant?   @relation(fields: [merchantId], references: [id], onDelete: SetNull)
   category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  obligation  RecurringObligation?
 
   @@index([tenantId, occurredAt(sort: Desc)])
   @@index([tenantId, status, occurredAt(sort: Desc)])
@@ -223,10 +263,15 @@ model RecurringPayment {
   tenantId         String    @map("tenant_id") @db.Uuid
   accountId        String?   @map("account_id") @db.Uuid
   merchantId       String?   @map("merchant_id") @db.Uuid
+  categoryId       String?   @map("category_id") @db.Uuid
   name             String    @db.VarChar(255)
   expectedAmount   Decimal?  @map("expected_amount") @db.Decimal(20, 4)
   currency         String    @db.Char(3)
   frequency        String    @db.VarChar(32)
+  startAt          DateTime  @map("start_at") @db.Timestamptz(6)
+  dueDay           Int?      @map("due_day")
+  aliases          Json      @default("[]") @db.JsonB
+  pausedAt         DateTime? @map("paused_at") @db.Timestamptz(6)
   nextExpectedAt   DateTime? @map("next_expected_at") @db.Timestamptz(6)
   lastChargedAt    DateTime? @map("last_charged_at") @db.Timestamptz(6)
   status           String    @default("active") @db.VarChar(32)
@@ -237,10 +282,41 @@ model RecurringPayment {
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   account  Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
   merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  obligations RecurringObligation[]
 
   @@unique([tenantId, name, accountId])
   @@index([tenantId, status, nextExpectedAt])
+  @@index([tenantId, categoryId])
   @@map("recurring_payments")
+  @@schema("finance")
+}
+
+model RecurringObligation {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  recurringPaymentId String    @map("recurring_payment_id") @db.Uuid
+  transactionId      String?   @unique @map("transaction_id") @db.Uuid
+  period             String    @db.Char(7)
+  expectedAmount     Decimal   @map("expected_amount") @db.Decimal(20, 4)
+  actualAmount       Decimal?  @map("actual_amount") @db.Decimal(20, 4)
+  currency           String    @db.Char(3)
+  categoryId         String?   @map("category_id") @db.Uuid
+  dueAt              DateTime  @map("due_at") @db.Timestamptz(6)
+  paidAt             DateTime? @map("paid_at") @db.Timestamptz(6)
+  paymentStatus      String    @default("pending") @map("payment_status") @db.VarChar(32)
+  reconciliationStatus String  @default("unreconciled") @map("reconciliation_status") @db.VarChar(32)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recurringPayment RecurringPayment @relation(fields: [recurringPaymentId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, recurringPaymentId, period])
+  @@index([tenantId, period, currency, paymentStatus])
+  @@map("recurring_obligations")
   @@schema("finance")
 }
 

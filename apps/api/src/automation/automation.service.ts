@@ -59,6 +59,30 @@ export class AutomationService {
       select: { id: true },
     });
     if (!event) throw new NotFoundException('Source event not found for this tenant');
+    if (
+      candidate.accountId &&
+      !(await this.prisma.client.account.findFirst({
+        where: { id: candidate.accountId, tenantId: candidate.tenantId },
+        select: { id: true },
+      }))
+    )
+      throw new NotFoundException('Account not found for this tenant');
+    if (
+      candidate.merchantId &&
+      !(await this.prisma.client.merchant.findFirst({
+        where: { id: candidate.merchantId, tenantId: candidate.tenantId },
+        select: { id: true },
+      }))
+    )
+      throw new NotFoundException('Merchant not found for this tenant');
+    if (
+      candidate.categoryId &&
+      !(await this.prisma.client.category.findFirst({
+        where: { id: candidate.categoryId, tenantId: candidate.tenantId },
+        select: { id: true },
+      }))
+    )
+      throw new NotFoundException('Category not found for this tenant');
     const existing = await this.prisma.client.transaction.findFirst({
       where: {
         tenantId: candidate.tenantId,
@@ -67,35 +91,128 @@ export class AutomationService {
       },
     });
     if (existing) return { id: existing.id, status: existing.status, duplicate: true };
-    const created = await this.prisma.client.transaction.create({
-      data: {
-        tenantId: candidate.tenantId,
-        sourceEventId: candidate.sourceEventId,
-        accountId: candidate.accountId,
-        merchantId: candidate.merchantId,
-        categoryId: candidate.categoryId,
-        externalReference: candidate.externalReference,
-        direction: candidate.direction,
-        transactionType: candidate.transactionType,
-        amount: new Prisma.Decimal(candidate.amount),
-        currency: candidate.currency,
-        description: candidate.description,
-        occurredAt: new Date(candidate.occurredAt),
-        postedAt: candidate.postedAt ? new Date(candidate.postedAt) : undefined,
-        confidence:
-          candidate.confidence === undefined ? undefined : new Prisma.Decimal(candidate.confidence),
-        requiresReview: candidate.requiresReview,
-        status: candidate.requiresReview ? 'pending_review' : 'posted',
-        rawMetadata: {
-          ...candidate.rawMetadata,
-          adapter: candidate.adapter,
-          candidateId: candidate.candidateId,
-        } as Prisma.InputJsonValue,
-      },
+    const eligible =
+      candidate.direction === 'debit'
+        ? await this.prisma.client.recurringObligation.findMany({
+            where: {
+              tenantId: candidate.tenantId,
+              currency: candidate.currency,
+              expectedAmount: new Prisma.Decimal(candidate.amount),
+              paymentStatus: { in: ['pending', 'paid'] },
+              recurringPayment: { accountId: candidate.accountId ?? undefined },
+            },
+            include: { recurringPayment: true },
+          })
+        : [];
+    const normalized = candidate.description.toLowerCase().replace(/[^a-z0-9]/gu, '');
+    const matches = eligible.filter((item) => {
+      const names = [
+        item.recurringPayment.name,
+        ...((item.recurringPayment.aliases as string[]) ?? []),
+      ].map((name) => name.toLowerCase().replace(/[^a-z0-9]/gu, ''));
+      return (
+        names.includes(normalized) &&
+        Math.abs(new Date(candidate.occurredAt).getTime() - item.dueAt.getTime()) <= 7 * 86400000
+      );
     });
-    await this.prisma.client.sourceEvent.update({
-      where: { id: event.id },
-      data: { status: 'processed' },
+    const match = matches[0];
+    if (matches.length === 1 && match?.transactionId) {
+      await this.prisma.client.$transaction([
+        this.prisma.client.recurringObligation.update({
+          where: { id: match.id },
+          data: { reconciliationStatus: 'reconciled' },
+        }),
+        this.prisma.client.transaction.update({
+          where: { id: match.transactionId },
+          data: {
+            rawMetadata: { reconciledSourceEventId: candidate.sourceEventId, origin: 'manual' },
+          },
+        }),
+        this.prisma.client.sourceEvent.update({
+          where: { id: event.id },
+          data: { status: 'processed' },
+        }),
+      ]);
+      return { id: match.transactionId, status: 'posted', duplicate: true, reconciled: true };
+    }
+    const created = await this.prisma.client.$transaction(async (transaction) => {
+      const needsReview = candidate.requiresReview || matches.length > 1;
+      const recurringMatch = matches.length === 1 && !needsReview ? match : undefined;
+      const transactionRecord = await transaction.transaction.create({
+        data: {
+          tenantId: candidate.tenantId,
+          sourceEventId: candidate.sourceEventId,
+          accountId: candidate.accountId,
+          merchantId: candidate.merchantId,
+          categoryId: candidate.categoryId,
+          externalReference: candidate.externalReference,
+          direction: candidate.direction,
+          transactionType: recurringMatch ? 'recurring_payment' : candidate.transactionType,
+          amount: new Prisma.Decimal(candidate.amount),
+          currency: candidate.currency,
+          description: candidate.description,
+          occurredAt: new Date(candidate.occurredAt),
+          postedAt: candidate.postedAt ? new Date(candidate.postedAt) : undefined,
+          confidence:
+            candidate.confidence === undefined
+              ? undefined
+              : new Prisma.Decimal(candidate.confidence),
+          requiresReview: needsReview,
+          status: needsReview ? 'pending_review' : 'posted',
+          rawMetadata: {
+            ...candidate.rawMetadata,
+            adapter: candidate.adapter,
+            candidateId: candidate.candidateId,
+            ...(recurringMatch ? { recurringObligationId: recurringMatch.id } : {}),
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      if (recurringMatch) {
+        const linked = await transaction.recurringObligation.updateMany({
+          where: { id: recurringMatch.id, transactionId: null },
+          data: {
+            transactionId: transactionRecord.id,
+            actualAmount: transactionRecord.amount,
+            paidAt: transactionRecord.occurredAt,
+            paymentStatus: 'paid',
+            reconciliationStatus: 'reconciled',
+          },
+        });
+        if (linked.count !== 1) {
+          throw new ConflictException({
+            code: 'RECURRING_RECONCILIATION_CONFLICT',
+            message: 'The recurring obligation was reconciled concurrently',
+          });
+        }
+      }
+
+      if (needsReview) {
+        await transaction.reviewQueue.upsert({
+          where: {
+            tenantId_sourceEventId: {
+              tenantId: candidate.tenantId,
+              sourceEventId: candidate.sourceEventId,
+            },
+          },
+          create: {
+            tenantId: candidate.tenantId,
+            sourceEventId: candidate.sourceEventId,
+            reason:
+              matches.length > 1
+                ? 'Multiple recurring obligations match this transaction'
+                : 'Transaction candidate requires review before recurring reconciliation',
+            priority: 'normal',
+          },
+          update: {},
+        });
+      }
+
+      await transaction.sourceEvent.update({
+        where: { id: event.id },
+        data: { status: needsReview ? 'needs_review' : 'processed' },
+      });
+      return transactionRecord;
     });
     return { id: created.id, status: created.status, duplicate: false };
   }
