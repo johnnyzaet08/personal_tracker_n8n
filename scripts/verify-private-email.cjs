@@ -13,9 +13,10 @@ function samples(directory) {
   });
 }
 try {
-  const source = JSON.parse(
-    fs.readFileSync(path.join(root, '.private/gmail-source-config.json'), 'utf8'),
-  );
+  const configurationPath = path.join(root, '.private/gmail-source-config.json');
+  const source = fs.existsSync(configurationPath)
+    ? JSON.parse(fs.readFileSync(configurationPath, 'utf8'))
+    : { adapterKey: 'bank-purchase-html-v1', defaultCurrency: undefined };
   const files = samples(path.join(root, '.private'));
   let passed = 0;
   for (const file of files) {
@@ -33,7 +34,9 @@ try {
     const checks = [
       !!mime.html,
       mime.text === undefined,
-      result.event.sender.address === source.senderAddress,
+      source.senderAddress
+        ? result.event.sender.address === source.senderAddress
+        : /^[^\s@]+@[^\s@]+$/u.test(result.event.sender.address),
       !!candidate?.amount,
       !!candidate?.currency,
       !!candidate?.occurredAt,
@@ -52,6 +55,7 @@ try {
       privateSamples: files.length,
       passed,
       checksPerSample: 11,
+      sourceConfigurationPresent: fs.existsSync(configurationPath),
       privateValuesLogged: false,
     }),
   );

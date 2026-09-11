@@ -6,6 +6,8 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@tracker/database';
 import { AutomationService } from '../automation/automation.service';
 import { PrismaService } from '../database/prisma.service';
+import { FinanceService } from '../finance/finance.service';
+import { TransactionQueryDto } from '../finance/list-query.dto';
 import { EmailSyncService } from './email-sync.service';
 import { localDate } from './email-sync.policy';
 
@@ -385,6 +387,206 @@ void test(
         assert.ok(!privacy.includes(forbidden));
     } finally {
       service.onModuleDestroy();
+      await prisma.onModuleDestroy();
+    }
+  },
+);
+
+void test(
+  'disposable PostgreSQL: Gmail and manual payments share recurring reconciliation and summary boundaries',
+  { skip: !testUrl },
+  async () => {
+    if (!testUrl || !/^\/tracker_[a-z0-9_]*verify$/u.test(new URL(testUrl).pathname))
+      throw new Error('DISPOSABLE_TEST_DATABASE_REQUIRED');
+    process.env.DATABASE_URL = testUrl;
+    const prisma = new PrismaService();
+    await prisma.onModuleInit();
+    const email = new EmailSyncService(
+      prisma,
+      new ConfigService({
+        N8N_INTERNAL_URL: 'http://127.0.0.1:1',
+        INTERNAL_API_KEY: 'synthetic-test-key-00000000000000000000',
+      }),
+    );
+    const finance = new FinanceService(prisma);
+    const db = prisma.client;
+    try {
+      const tenantId = randomUUID();
+      const month = localDate().slice(0, 7);
+      const date = `${month}-03`;
+      const [year, monthNumber] = month.split('-');
+      const financialDate = `03/${monthNumber}/${year} 11:15`;
+      await db.tenant.create({
+        data: {
+          id: tenantId,
+          slug: `recurring-email-test-${tenantId}`,
+          name: 'Synthetic recurring email test',
+          timezone: 'America/Costa_Rica',
+          defaultCurrency: 'CRC',
+        },
+      });
+      const integration = await db.integration.create({
+        data: { tenantId, provider: 'gmail', type: 'email', status: 'connected' },
+      });
+      const source = await email.createSource(tenantId, {
+        schemaVersion: 1,
+        integrationId: integration.id,
+        displayName: 'Synthetic recurring alerts',
+        senderAddress: 'recurring-alerts@bank.example',
+        institutionName: 'Synthetic Bank',
+        adapterKey: 'bank-purchase-html-v1',
+        accountId: null,
+        defaultCurrency: 'CRC',
+        autoIngestionEnabled: true,
+        manualSyncEnabled: true,
+        status: 'active',
+      });
+      const category = await db.category.create({
+        data: {
+          tenantId,
+          name: 'Synthetic needs',
+          slug: 'synthetic-needs',
+          type: 'expense',
+          budgetGroup: 'needs',
+        },
+      });
+      const message = (id: string, merchant: string, amount: string, reference: string) => ({
+        id,
+        threadId: `thread-${id}`,
+        labelIds: ['INBOX', 'UNREAD'],
+        internalDate: String(Date.parse(`${date}T11:15:00-06:00`)),
+        headers: {
+          from: source.senderAddress,
+          'authentication-results': 'mx.google.com; spf=pass; dkim=pass; dmarc=pass',
+        },
+        html: `<table><tr><td>Comercio:</td><td>${merchant}</td></tr><tr><td>Fecha:</td><td>${financialDate}</td></tr><tr><td>Tarjeta:</td><td>XXXXXXXX4242</td></tr><tr><td>Referencia:</td><td>${reference}</td></tr><tr><td>Tipo de transaccion:</td><td>Compra</td></tr><tr><td>Monto:</td><td>CRC ${amount}</td></tr></table>`,
+      });
+      const obligation = async (name: string, amount: string) => {
+        const recurring = await db.recurringPayment.create({
+          data: {
+            tenantId,
+            name,
+            aliases: [],
+            expectedAmount: new Prisma.Decimal(amount),
+            currency: 'CRC',
+            frequency: 'monthly',
+            startAt: new Date(`${month}-01T06:00:00Z`),
+            dueDay: 3,
+            categoryId: category.id,
+          },
+        });
+        return db.recurringObligation.create({
+          data: {
+            tenantId,
+            recurringPaymentId: recurring.id,
+            period: month,
+            expectedAmount: new Prisma.Decimal(amount),
+            currency: 'CRC',
+            categoryId: category.id,
+            dueAt: new Date(`${date}T06:00:00Z`),
+          },
+        });
+      };
+
+      const gmailObligation = await obligation('GMAIL PLAN', '55.00');
+      const imported = (await email.automatic(
+        tenantId,
+        message('recurring-gmail-first', 'GMAIL PLAN', '55.00', 'RECURRING-GMAIL-1'),
+      )) as { classification: string; transactionId: string };
+      assert.equal(imported.classification, 'new');
+      const importedTransaction = await db.transaction.findUniqueOrThrow({
+        where: { id: imported.transactionId },
+      });
+      assert.equal(importedTransaction.transactionType, 'recurring_payment');
+      assert.equal(importedTransaction.categoryId, category.id);
+      assert.equal(
+        (await db.recurringObligation.findUniqueOrThrow({ where: { id: gmailObligation.id } }))
+          .transactionId,
+        imported.transactionId,
+      );
+      assert.equal(
+        (
+          (await email.automatic(
+            tenantId,
+            message('recurring-gmail-duplicate', 'GMAIL PLAN', '55.00', 'RECURRING-GMAIL-1'),
+          )) as { classification: string }
+        ).classification,
+        'exact_duplicate',
+      );
+
+      const manualObligation = await obligation('MANUAL PLAN', '65.00');
+      const manual = (await finance.payObligation(tenantId, manualObligation.id, {
+        paidAt: date,
+        actualAmount: '65.00',
+      })) as { id: string };
+      const reconciledManual = (await email.automatic(
+        tenantId,
+        message('recurring-manual-email', 'MANUAL PLAN', '65.00', 'RECURRING-MANUAL-1'),
+      )) as { classification: string; transactionId: string };
+      assert.equal(reconciledManual.classification, 'exact_duplicate');
+      assert.equal(reconciledManual.transactionId, manual.id);
+
+      const concurrentObligation = await obligation('CONCURRENT PLAN', '75.00');
+      await Promise.all([
+        finance.payObligation(tenantId, concurrentObligation.id, {
+          paidAt: date,
+          actualAmount: '75.00',
+        }),
+        email.automatic(
+          tenantId,
+          message(
+            'recurring-concurrent-email',
+            'CONCURRENT PLAN',
+            '75.00',
+            'RECURRING-CONCURRENT-1',
+          ),
+        ),
+      ]);
+      assert.equal(await db.transaction.count({ where: { tenantId } }), 3);
+      assert.equal(
+        await db.recurringObligation.count({
+          where: { tenantId, transactionId: { not: null }, paymentStatus: 'paid' },
+        }),
+        3,
+      );
+
+      for (const [currency, status, amount] of [
+        ['USD', 'posted', '999.00'],
+        ['CRC', 'pending_review', '888.00'],
+        ['CRC', 'void', '777.00'],
+      ] as const) {
+        const event = await db.sourceEvent.create({
+          data: {
+            tenantId,
+            source: 'email_fixture',
+            externalId: randomUUID(),
+            eventType: 'synthetic.summary',
+            schemaVersion: 1,
+            occurredAt: new Date(`${date}T12:00:00-06:00`),
+            receivedAt: new Date(`${date}T12:00:00-06:00`),
+            payloadHash: randomUUID().replaceAll('-', '').padEnd(64, '0').slice(0, 64),
+            payload: {},
+          },
+        });
+        await db.transaction.create({
+          data: {
+            tenantId,
+            sourceEventId: event.id,
+            direction: 'debit',
+            transactionType: 'purchase',
+            amount: new Prisma.Decimal(amount),
+            currency,
+            description: 'SUMMARY FILTER FIXTURE',
+            occurredAt: new Date(`${date}T12:00:00-06:00`),
+            status,
+          },
+        });
+      }
+      const summary = await finance.summary(tenantId, new TransactionQueryDto());
+      assert.equal(summary.currency, 'CRC');
+      assert.equal(summary.expenses, '195.0000');
+    } finally {
+      email.onModuleDestroy();
       await prisma.onModuleDestroy();
     }
   },

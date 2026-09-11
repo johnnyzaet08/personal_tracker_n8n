@@ -43,6 +43,10 @@ void test('Gmail search specifies exact sender, unread and Costa Rica month boun
   const query = gmailQuery('alerts@bank.example', '2026-09');
   assert.ok(query.includes('from:(alerts@bank.example) is:unread'));
   assert.ok(query.includes(`after:${Date.parse('2026-09-01T06:00:00Z') / 1000 - 1}`));
+  const exact = gmailQuery('alerts@bank.example', '2026-09', '2026-09-04');
+  assert.ok(exact.includes(`after:${Date.parse('2026-09-04T06:00:00Z') / 1000 - 1}`));
+  assert.ok(exact.includes(`before:${Date.parse('2026-09-05T06:00:00Z') / 1000}`));
+  assert.throws(() => gmailQuery('alerts@bank.example', '2026-09', '2026-08-31'));
   assert.throws(() => gmailQuery('alerts@bank.example OR from:attacker@example.test', '2026-09'));
 });
 

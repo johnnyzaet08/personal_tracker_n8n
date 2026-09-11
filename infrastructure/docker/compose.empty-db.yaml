@@ -1,0 +1,25 @@
+# Overlay used only by infrastructure/scripts/validate-empty-database.ps1.
+#
+# compose.yaml intentionally uses stable, named resources for normal local
+# development. This overlay assigns every named resource a unique run suffix so
+# a migration can be exercised against a brand-new database without attaching
+# to, or colliding with, a developer's existing tracker stack.
+networks:
+  public:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-public
+  data:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-data
+
+volumes:
+  tracker_postgres_data:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-postgres-data
+  tracker_n8n_data:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-n8n-data
+  tracker_n8n_binary_data:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-n8n-binary-data
+  tracker_redis_data:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-redis-data
+  tracker_caddy_data:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-caddy-data
+  tracker_caddy_config:
+    name: finance-validation-${VALIDATION_RUN_ID:?Set VALIDATION_RUN_ID}-caddy-config

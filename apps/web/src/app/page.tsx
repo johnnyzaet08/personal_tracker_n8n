@@ -4,31 +4,42 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
 import { apiGet } from '@/lib/api';
+import { currentPeriodInCostaRica } from '@/lib/date';
 
 export const dynamic = 'force-dynamic';
 
-function money(value: string): string {
-  return new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC' }).format(
-    Number(value),
-  );
+function money(value: string, currency: string): string {
+  return new Intl.NumberFormat('es-CR', { style: 'currency', currency }).format(Number(value));
 }
 
-export default async function Home() {
-  const summary = await apiGet<DashboardSummary>('/api/v1/dashboard/summary');
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string; currency?: string }>;
+}) {
+  const search = await searchParams;
+  const period = search.period ?? currentPeriodInCostaRica();
+  const currency = (search.currency ?? 'CRC').toUpperCase();
+  const [year, month] = period.split('-').map(Number);
+  const from = new Date(Date.UTC(year!, month! - 1, 1, 6)).toISOString();
+  const to = new Date(Date.UTC(year!, month!, 1, 5, 59, 59, 999)).toISOString();
+  const summary = await apiGet<DashboardSummary>(
+    `/api/v1/dashboard/summary?dateFrom=${encodeURIComponent(from)}&dateTo=${encodeURIComponent(to)}&currency=${currency}`,
+  );
   const metrics = [
     {
       label: 'Gastos del período',
-      value: money(summary.expenses),
+      value: money(summary.expenses, currency),
       icon: ArrowUpRight,
       tone: 'expense',
     },
     {
       label: 'Ingresos del período',
-      value: money(summary.income),
+      value: money(summary.income, currency),
       icon: ArrowDownLeft,
       tone: 'income',
     },
-    { label: 'Balance', value: money(summary.balance), icon: Scale, tone: 'balance' },
+    { label: 'Balance', value: money(summary.balance, currency), icon: Scale, tone: 'balance' },
     {
       label: 'Pendientes de revisión',
       value: String(summary.pendingReview),
@@ -41,7 +52,16 @@ export default async function Home() {
       <PageHeader
         title="Resumen"
         description="Una lectura clara de tu actividad financiera del período actual."
-        actions={<span className="period-chip">Este mes</span>}
+        actions={
+          <form className="period-selector">
+            <input name="period" type="month" defaultValue={period} />
+            <select name="currency" defaultValue={currency}>
+              <option>CRC</option>
+              <option>USD</option>
+            </select>
+            <button className="primary-button">Ver</button>
+          </form>
+        }
       />
       <section className="metric-grid" aria-label="Indicadores principales">
         {metrics.map((metric) => {
@@ -61,6 +81,50 @@ export default async function Home() {
         })}
       </section>
       <section className="dashboard-grid">
+        <article className="panel panel-wide">
+          <div className="panel-heading">
+            <div>
+              <h2>Uso por grupo presupuestario</h2>
+              <p>
+                El círculo muestra lo comprometido y lo que queda antes del límite. Recurrentes
+                pendientes solo reservan en Gastos necesarios.
+              </p>
+            </div>
+          </div>
+          {!summary.budget ? (
+            <EmptyState
+              title="Presupuesto sin configurar"
+              description="Configúralo en Plan mensual para comparar gastos y compromisos contra límites."
+            />
+          ) : (
+            <div className="donut-grid">
+              {summary.budget.groups.map((group) => {
+                const ratio =
+                  Number(group.assigned) > 0
+                    ? Math.max(
+                        0,
+                        Math.min(100, (Number(group.committed) / Number(group.assigned)) * 100),
+                      )
+                    : 0;
+                return (
+                  <article key={group.key} className="donut-item">
+                    <div
+                      className="donut"
+                      style={{
+                        background: `conic-gradient(var(--forest-bright) 0 ${ratio}%, var(--surface-soft) ${ratio}% 100%)`,
+                      }}
+                    >
+                      <span>{ratio.toFixed(0)}%</span>
+                    </div>
+                    <strong>{group.label}</strong>
+                    <small>{money(group.committed, currency)} comprometido</small>
+                    <small>{money(group.available, currency)} disponible</small>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </article>
         <article className="panel panel-wide">
           <div className="panel-heading">
             <div>
@@ -101,7 +165,7 @@ export default async function Home() {
               {summary.byCategory.map((item) => (
                 <li key={item.categoryId ?? item.name}>
                   <span>{item.name}</span>
-                  <strong>{money(item.amount)}</strong>
+                  <strong>{money(item.amount, currency)}</strong>
                 </li>
               ))}
             </ul>
@@ -124,7 +188,7 @@ export default async function Home() {
               {summary.topMerchants.map((item) => (
                 <li key={item.merchantId ?? item.name}>
                   <span>{item.name}</span>
-                  <strong>{money(item.amount)}</strong>
+                  <strong>{money(item.amount, currency)}</strong>
                 </li>
               ))}
             </ul>

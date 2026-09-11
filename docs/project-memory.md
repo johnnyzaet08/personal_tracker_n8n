@@ -7,7 +7,7 @@ This document is the compact starting context for future tasks. It records verif
 - Repository: `personal_tracker_n8n`.
 - Baseline commit: `b6b5467 feat: initialize financial tracker platform`.
 - Default branch: `main`.
-- Baseline checked on: 2026-09-03, America/Costa_Rica. Gmail workstream updated on 2026-09-06; see its validation report.
+- Baseline checked on: 2026-09-10, America/Costa_Rica. Finance delivery 2 and the Gmail workstream are integrated on `codex/finance-monthly-budget`; see their validation reports.
 - Local status at that check: PostgreSQL, API, web, and n8n healthy; migration and workflow-import jobs exited successfully with code 0.
 - Baseline integration status was Gmail pending. OAuth and real Gmail preview/selected processing were subsequently exercised by the Gmail reconciliation workstream.
 
@@ -45,9 +45,9 @@ Update versions only through an explicit dependency task with compatibility rese
 ## Implemented domain state
 
 - Core tenancy, users, memberships, integrations, and idempotent source events exist.
-- Finance accounts, merchants, categories, transactions, recurring payments, classification, action runs, review queue, and notifications exist.
+- Finance accounts, merchants, categories, transactions, recurring payment patterns and obligations, monthly budgets and allocations, classification, action runs, review queue, and notifications exist.
 - `habits` and `health` schemas are reserved but intentionally contain no domain tables.
-- The development seed creates one deterministic tenant, user, membership, and a pending Gmail integration. It creates no fake financial data.
+- The development seed creates one deterministic tenant, user, membership, and a Gmail integration while preserving an existing connection state. It creates no fake financial data.
 - Empty dashboard and list responses are valid supported states.
 
 ## Automation state
@@ -69,14 +69,17 @@ Versioned JSONs remain inactive and contain only `GMAIL_OAUTH_CREDENTIAL_REQUIRE
 
 ## Gmail reconciliation workstream
 
-- Isolated branch `codex/gmail-reconciliation`, based on main commit `eef015f3a5ff6e212935ff8fc61b22fe839a274e`.
+- The former isolated branch `codex/gmail-reconciliation` is integrated into the Finance delivery branch. Its original base was main commit `eef015f3a5ff6e212935ff8fc61b22fe839a274e`.
 - ADR-005 locates sources/runs/previews in core before additive migrations. No EAV extension.
 - The API owns one MIME parser and bank-template adapter, shared by automatic/manual paths. Finance receives a connector-independent candidate.
 - Dashboard configuration, current-month/exact-date preview, explicit selection, polling, history and counters are implemented.
+- Exact-date mode constrains the Gmail query to that Costa Rica calendar day before applying the ten-message cap.
 - Message ID, canonical financial SHA-256 and tenant financial identity prevent duplicates. Conflicts retain a safe proposal in review queue; no financial fields or manual corrections are overwritten.
+- Gmail ingestion and manual recurring payments share a tenant advisory lock and recurring-obligation match policy. A recurring reserve is atomically replaced by one canonical `recurring_payment`; concurrent paths cannot double-book it.
 - All four migrations passed on existing tracker and a fresh disposable database. A logical private backup preceded the first write.
 - Private HTML-only EML passed eleven structural/extraction checks. Synthetic parser/policy and PostgreSQL integration suites passed.
 - The real preview returned ten unread eligible messages and created no observations/transactions; the first selection created exactly two transactions. Scheduled Gmail polling added eight; reprocessing ten selected messages reported ten duplicates with no new transactions. Final tracker count is ten transactions, ten observations and zero financial reviews. See the validation report.
+- On 2026-09-10, after Finance integration, a new real monthly preview reached `awaiting_selection` with ten eligible rows, zero selected, zero new transactions and no errors. The UI was verified in `/integrations`; no message was processed during this validation.
 - n8n execution inputs use private tmpfs: save=none alone still stored initial inputs in 2.37.4. A new real ten-message replay produced zero new execution_data payloads. Fourteen task-owned soft-deleted test executions were removed; earlier user history was preserved. Compose pins regular mode and blocks scale until transient shared storage is designed.
 - `.private/` is excluded from Git, Docker build context and formatting. Real messages, tokens, credential IDs and financial values must never be copied into reports or fixtures.
 

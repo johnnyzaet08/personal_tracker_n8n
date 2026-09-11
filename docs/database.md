@@ -14,43 +14,28 @@ Se revoca acceso `PUBLIC` a ambas bases. PostgreSQL no publica puerto al host. `
 
 ## Tablas
 
-| Schema | Tabla | Papel |
-
-| ---------- | ------------------ | ------------------------------------ |
-
-| core | tenants | límite de aislamiento, zona y moneda |
-
-| core | users | identidad normalizada |
-
-| core | tenant_memberships | relación y rol por tenant |
-
-| core | integrations | estado y metadata sin secretos |
-
-| core | source_events | entrada idempotente de proveedores |
-
-| core | email_sources | remitentes y adapters por integración |
-
-| core | email_sync_runs | ejecuciones asíncronas y selección |
-
-| core | email_sync_candidates | preview financiero sin correo |
-
-| finance | accounts | cuentas financieras |
-
-| finance | merchants | normalización de comercios |
-
-| finance | categories | árbol de categorías |
-
-| finance | transactions | movimientos en `NUMERIC(20,4)` |
-
-| finance | recurring_payments | patrón recurrente inicial |
-
-| automation | classifications | resultados versionados |
-
-| automation | action_runs | acciones con idempotency key |
-
-| automation | review_queue | decisiones humanas pendientes |
-
-| automation | notifications | entregas futuras por canal |
+| Schema     | Tabla                 | Papel                                      |
+| ---------- | --------------------- | ------------------------------------------ |
+| core       | tenants               | límite de aislamiento, zona y moneda       |
+| core       | users                 | identidad normalizada                      |
+| core       | tenant_memberships    | relación y rol por tenant                  |
+| core       | integrations          | estado y metadata sin secretos             |
+| core       | source_events         | entrada idempotente de proveedores         |
+| core       | email_sources         | remitentes y adapters por integración      |
+| core       | email_sync_runs       | ejecuciones asíncronas y selección         |
+| core       | email_sync_candidates | preview financiero sin conservar el correo |
+| finance    | accounts              | cuentas financieras                        |
+| finance    | merchants             | normalización de comercios                 |
+| finance    | categories            | árbol de categorías                        |
+| finance    | transactions          | movimientos en `NUMERIC(20,4)`             |
+| finance    | recurring_payments    | patrones de pagos recurrentes              |
+| finance    | recurring_obligations | compromisos mensuales y pagos efectivos    |
+| finance    | monthly_budgets       | ingreso base planificado por mes y moneda  |
+| finance    | budget_allocations    | porcentajes históricos por grupo           |
+| automation | classifications       | resultados versionados                     |
+| automation | action_runs           | acciones con idempotency key por tenant    |
+| automation | review_queue          | decisiones humanas y evidencia propuesta   |
+| automation | notifications         | entregas futuras por canal                 |
 
 Todos los timestamps usan `TIMESTAMPTZ(6)`. UUIDs usan `gen_random_uuid()` y los IDs de source event pueden venir del contrato. Triggers compartidos mantienen `updated_at` también ante mantenimiento SQL.
 

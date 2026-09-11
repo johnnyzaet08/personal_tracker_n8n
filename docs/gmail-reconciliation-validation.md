@@ -1,8 +1,31 @@
 # Gmail reconciliation: evidencia de ejecución
 
-Fecha de cierre técnico: 2026-09-06, America/Costa_Rica. Rama:
-`codex/gmail-reconciliation`, creada desde main
+Fecha de cierre técnico original: 2026-09-06, America/Costa_Rica. Integración
+con Finance revalidada el 2026-09-10 en `codex/finance-monthly-budget`. La rama
+fuente fue `codex/gmail-reconciliation`, creada desde main
 `eef015f3a5ff6e212935ff8fc61b22fe839a274e` en worktree aislado.
+
+## Revalidación integrada del 2026-09-10
+
+- Se integraron contratos, tres migraciones Gmail, API, dashboard y workflows con
+  categorías, presupuesto mensual y obligaciones recurrentes.
+- Se corrigió la persistencia Gmail para conciliar una obligación mediante una
+  única transacción `recurring_payment`, incluido el caso de pago manual previo.
+  Pago manual, conector interno y Gmail comparten bloqueo por tenant.
+- La búsqueda por fecha exacta limita primero la consulta Gmail al día local;
+  así no pierde resultados porque existan diez mensajes posteriores en el mes.
+- El resumen financiero usa la moneda predeterminada y solo `posted` cuando el
+  cliente no solicita filtros explícitos, en línea con el cálculo presupuestario.
+- Dos pruebas PostgreSQL desechables cubren selección/privacidad y la unión
+  Gmail↔recurrentes, incluido pago concurrente y límites del resumen.
+- Las siete migraciones pasaron desde cero. El stack principal quedó saludable,
+  el importador enlazó la credencial sin leer sus datos y publicó los webhooks 02/03.
+- Un preview real llegó a `awaiting_selection`: diez encontrados/elegibles, cero
+  seleccionados, cero transacciones nuevas y ningún error. La UI de Integraciones
+  mostró selección explícita y mantuvo deshabilitado el análisis con cero elegidos.
+- El workflow automático 00 conserva su estado inactivo. Los workflows manuales
+  02 y 03 están activos. Reducir/verificar el grant OAuth a `gmail.readonly` sigue
+  siendo una acción de reconexión que debe completar el usuario.
 
 ## 1. Resumen y estado
 
@@ -248,18 +271,11 @@ se repitió después del despliegue y pasó.
 
 ## 14. Integración desde el worktree
 
-1. Revisar el commit de codex/gmail-reconciliation y este informe. El checkout main
-   mantiene cambios ajenos: no hacer reset ni sobreescribirlos.
-2. Integrar por PR o merge revisado cuando main esté preparado. El commit local
-   se creó sin firma: Git tiene GPG activado pero no dispone de la clave privada
-   en este entorno. No se cambió esa configuración; firmar antes de integrar si
-   la política del proyecto lo exige. No se hizo push ni merge automáticamente.
-3. Conservar el entorno privado existente y respaldar tracker antes de migrar.
-4. Detener n8n con docker compose stop n8n antes de importar. Ejecutar la
-   validación completa de AGENTS.md, incluido up --build -d. El
-   importador restaura la credencial desde el almacén cifrado y mantiene el cursor.
-5. Verificar health, workflows:connectivity y una lectura del dashboard. No
-   reejecutar un catchup histórico sin una ventana explícitamente autorizada.
+El código de `codex/gmail-reconciliation` fue integrado y revalidado sobre
+`codex/finance-monthly-budget` el 2026-09-10. La combinación conserva el entorno
+privado, la credencial cifrada y el cursor de n8n. No se modificaron ni eliminaron
+volúmenes persistentes. La entrega debe llegar a main mediante revisión/merge de
+la rama publicada, no mediante un merge automático desde este workstream.
 
 Rollback: deshabilitar fuentes automáticas/webhooks nuevos, volver al código
 anterior y conservar las tablas/columnas aditivas. Restaurar un backup afectaría

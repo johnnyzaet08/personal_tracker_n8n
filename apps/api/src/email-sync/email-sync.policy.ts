@@ -50,12 +50,15 @@ export function inFinancialPeriod(
   );
 }
 
-export function gmailQuery(sender: string, month: string): string {
+export function gmailQuery(sender: string, month: string, exactDate?: string | null): string {
   // Configuration accepts a single normalized mailbox; quotes protect Gmail search operators.
   if (!/^[^\s"<>:]+@[^\s"<>:]+$/u.test(sender)) throw new Error('INVALID_SENDER');
-  const start = new Date(`${month}-01T00:00:00-06:00`);
+  if (exactDate && exactDate.slice(0, 7) !== month) throw new Error('DATE_OUTSIDE_PERIOD');
+  const start = new Date(`${exactDate ?? `${month}-01`}T00:00:00-06:00`);
   const [year, m] = month.split('-').map(Number);
-  const end = new Date(Date.UTC(year!, m, 1, 6));
+  const end = exactDate
+    ? new Date(start.getTime() + 86_400_000)
+    : new Date(Date.UTC(year!, m, 1, 6));
   return `from:(${sender}) is:unread after:${Math.floor(start.getTime() / 1000) - 1} before:${Math.floor(end.getTime() / 1000)}`;
 }
 

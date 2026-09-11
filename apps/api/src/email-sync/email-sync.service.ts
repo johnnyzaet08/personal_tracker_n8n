@@ -25,6 +25,11 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import { extractGmailSender, parseGmailMessage } from '../email-ingestion/bank-purchase-adapter';
 import {
+  findRecurringObligationMatches,
+  jsonObject,
+  type RecurringObligationMatch,
+} from '../finance/recurring-reconciliation';
+import {
   ACTIVE_RUN_STATES,
   EMAIL_ADAPTERS,
   EMAIL_TIMEZONE,
@@ -411,7 +416,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     return {
       run: await this.run(tenantId, id),
       source: this.sourceView(source),
-      query: gmailQuery(source.senderAddress, run.periodMonth),
+      query: gmailQuery(source.senderAddress, run.periodMonth, run.exactDate),
       messageIds: selected.map((row) => row.messageId),
       limit: 10,
     };
@@ -791,7 +796,10 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
         transaction.amount.toFixed(4) === canonicalAmount(candidate.amount) &&
         transaction.currency === candidate.currency &&
         transaction.direction === candidate.direction &&
-        transaction.transactionType === candidate.transactionType &&
+        (transaction.transactionType === candidate.transactionType ||
+          (transaction.transactionType === 'recurring_payment' &&
+            jsonObject(transaction.rawMetadata).originalTransactionType ===
+              candidate.transactionType)) &&
         transaction.occurredAt.toISOString() === new Date(candidate.occurredAt).toISOString() &&
         canonicalText(transaction.description) === canonicalText(candidate.description) &&
         canonicalText(transaction.merchant?.canonicalName) === canonicalText(candidate.merchant) &&
@@ -818,6 +826,29 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     if (result.classification === 'already_processed') return result;
     if (forceReview && result.classification !== 'ignored_outside_period')
       result = { ...result, classification: 'conflict', reasonCodes: [forceReview] };
+    let recurringMatch: RecurringObligationMatch | undefined;
+    if (result.classification === 'new' && parsed.adapterResult.candidate) {
+      const matches = await findRecurringObligationMatches(
+        db,
+        safeCandidate(parsed.adapterResult.candidate),
+      );
+      if (matches.length > 1) {
+        result = {
+          ...result,
+          classification: 'conflict',
+          reasonCodes: ['MULTIPLE_RECURRING_MATCHES'],
+        };
+      } else {
+        recurringMatch = matches[0];
+        if (recurringMatch?.transactionId) {
+          result = {
+            ...result,
+            classification: 'exact_duplicate',
+            transactionId: recurringMatch.transactionId,
+          };
+        }
+      }
+    }
     const existing = await db.sourceEvent.findUnique({
       where: {
         tenantId_source_externalId: {
@@ -853,6 +884,21 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
         },
       }));
     result = { ...result, sourceEventId: event.id };
+    if (result.classification === 'exact_duplicate' && recurringMatch?.transactionId) {
+      await db.recurringObligation.update({
+        where: { id: recurringMatch.id },
+        data: { reconciliationStatus: 'reconciled' },
+      });
+      await db.transaction.update({
+        where: { id: recurringMatch.transactionId },
+        data: {
+          rawMetadata: json({
+            ...jsonObject(recurringMatch.transaction?.rawMetadata ?? null),
+            reconciledSourceEventId: event.id,
+          }),
+        },
+      });
+    }
     if (result.classification === 'new' && parsed.adapterResult.candidate) {
       const candidate = safeCandidate(parsed.adapterResult.candidate);
       const identity = financialIdentity(source, candidate);
@@ -878,9 +924,10 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
           sourceEventId: event.id,
           accountId: source.accountId,
           merchantId: merchant?.id,
+          categoryId: recurringMatch?.categoryId,
           externalReference: candidate.externalReference,
           direction: candidate.direction,
-          transactionType: candidate.transactionType,
+          transactionType: recurringMatch ? 'recurring_payment' : candidate.transactionType,
           amount: new Prisma.Decimal(candidate.amount),
           currency: candidate.currency,
           description: candidate.description,
@@ -895,9 +942,32 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
           rawMetadata: json({
             adapter: candidate.adapter,
             maskedIdentifier: candidate.maskedIdentifier,
+            ...(recurringMatch
+              ? {
+                  recurringObligationId: recurringMatch.id,
+                  originalTransactionType: candidate.transactionType,
+                }
+              : {}),
           }),
         },
       });
+      if (recurringMatch) {
+        const linked = await db.recurringObligation.updateMany({
+          where: { id: recurringMatch.id, transactionId: null },
+          data: {
+            transactionId: transaction.id,
+            actualAmount: transaction.amount,
+            paidAt: transaction.occurredAt,
+            paymentStatus: 'paid',
+            reconciliationStatus: 'reconciled',
+          },
+        });
+        if (linked.count !== 1)
+          throw new ConflictException({
+            code: 'RECURRING_RECONCILIATION_CONFLICT',
+            message: 'The recurring obligation was reconciled concurrently',
+          });
+      }
       result = { ...result, transactionId: transaction.id };
     }
     if (['conflict', 'requires_review'].includes(result.classification)) {
