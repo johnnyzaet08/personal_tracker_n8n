@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@tracker/database';
 import type {
   CategoryInput,
@@ -24,8 +29,15 @@ export class FinanceService {
       ? new Date(query.dateFrom)
       : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const to = query.dateTo ? new Date(query.dateTo) : now;
+    const tenant = await this.prisma.client.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { defaultCurrency: true },
+    });
+    const currency = query.currency?.toUpperCase() ?? tenant.defaultCurrency;
     const where = this.transactionWhere(tenantId, {
       ...query,
+      currency,
+      status: query.status ?? 'posted',
       dateFrom: from.toISOString(),
       dateTo: to.toISOString(),
     });
@@ -49,11 +61,6 @@ export class FinanceService {
       orderBy: { provider: 'asc' },
       select: { provider: true, status: true, lastSyncAt: true },
     });
-    const tenant = await this.prisma.client.tenant.findUniqueOrThrow({
-      where: { id: tenantId },
-      select: { defaultCurrency: true },
-    });
-    const currency = query.currency?.toUpperCase() ?? tenant.defaultCurrency;
     const period = from.toISOString().slice(0, 7);
     let expenses = new Prisma.Decimal(0);
     let income = new Prisma.Decimal(0);
@@ -408,6 +415,7 @@ export class FinanceService {
     const paidAt = this.dateAtCostaRica(input.paidAt);
     if (paidAt > new Date()) throw new BadRequestException('Payment date cannot be in the future');
     return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
       const obligation = await tx.recurringObligation.findFirst({
         where: { id, tenantId },
         include: { recurringPayment: true },
@@ -455,8 +463,8 @@ export class FinanceService {
           rawMetadata: { origin: 'manual', obligationId: id },
         },
       });
-      await tx.recurringObligation.update({
-        where: { id },
+      const linked = await tx.recurringObligation.updateMany({
+        where: { id, transactionId: null },
         data: {
           transactionId: transaction.id,
           paidAt,
@@ -465,6 +473,11 @@ export class FinanceService {
           reconciliationStatus: 'manual',
         },
       });
+      if (linked.count !== 1)
+        throw new ConflictException({
+          code: 'RECURRING_PAYMENT_CONFLICT',
+          message: 'The recurring obligation was paid concurrently',
+        });
       return { id: transaction.id, obligationId: id, duplicate: false };
     });
   }
@@ -621,6 +634,10 @@ export class FinanceService {
           }
         : {}),
     };
+  }
+
+  private async lockTenant(database: Prisma.TransactionClient, tenantId: string): Promise<void> {
+    await database.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`;
   }
 
   private paginated<T>(data: T[], total: number, query: ListQueryDto): PaginatedResponse<T> {

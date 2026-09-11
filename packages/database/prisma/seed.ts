@@ -54,19 +54,17 @@ async function main(): Promise<void> {
         status: 'pending',
         metadata: { configurationRequired: 'GMAIL_OAUTH_CREDENTIAL_REQUIRED' },
       },
-      update: {
-        status: 'pending',
-        metadata: { configurationRequired: 'GMAIL_OAUTH_CREDENTIAL_REQUIRED' },
-      },
+      update: {},
     });
-    console.log('Development tenant, user, membership, and pending Gmail integration are ready.');
+    console.log(
+      'Development tenant, user, membership, and Gmail integration are ready; existing connection state preserved.',
+    );
   } finally {
     await prisma.$disconnect();
   }
 }
 
-void main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : 'Unknown seed failure';
-  console.error(message);
+void main().catch(() => {
+  console.error('Development seed failed; inspect database health and configuration.');
   process.exitCode = 1;
 });

@@ -4,12 +4,19 @@
   "active": false,
   "nodes": [
     {
-      "parameters": { "workflowInputs": { "values": [] } },
+      "parameters": {
+        "workflowInputs": {
+          "values": []
+        }
+      },
       "id": "90000000-0000-4000-8000-000000000001",
       "name": "Review request",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [220, 300]
+      "position": [
+        220,
+        300
+      ]
     },
     {
       "parameters": {
@@ -19,36 +26,82 @@
       "name": "Normalize review item",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [450, 300]
+      "position": [
+        450,
+        300
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.API_INTERNAL_URL + '/internal/v1/review-queue' }}",
         "sendHeaders": true,
-        "headerParameters": { "parameters": [
-          { "name": "x-internal-api-key", "value": "={{ $env.INTERNAL_API_KEY }}" },
-          { "name": "x-tenant-id", "value": "={{ $json.tenantId }}" },
-          { "name": "x-correlation-id", "value": "={{ $json.sourceEventId }}" }
-        ] },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-api-key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $json.tenantId }}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{ $json.sourceEventId }}"
+            }
+          ]
+        },
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
         "body": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 10000 }
+        "options": {
+          "timeout": 10000
+        }
       },
       "id": "90000000-0000-4000-8000-000000000003",
       "name": "Persist review item",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [700, 300]
+      "position": [
+        700,
+        300
+      ]
     }
   ],
   "connections": {
-    "Review request": { "main": [[{ "node": "Normalize review item", "type": "main", "index": 0 }]] },
-    "Normalize review item": { "main": [[{ "node": "Persist review item", "type": "main", "index": 0 }]] }
+    "Review request": {
+      "main": [
+        [
+          {
+            "node": "Normalize review item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize review item": {
+      "main": [
+        [
+          {
+            "node": "Persist review item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "10000000-0000-4000-8000-000000000099",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
   "versionId": "90000000-0000-4000-8000-000000000099",
   "tags": []
 }

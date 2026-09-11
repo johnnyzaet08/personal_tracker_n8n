@@ -19,8 +19,10 @@ export class TenantMiddleware implements NestMiddleware {
     }
     const header = request.header('x-tenant-id');
     const localEnabled = this.config.get<string>('LOCAL_AUTH_ENABLED') === 'true';
-    const candidate =
-      header ?? (localEnabled ? this.config.get<string>('LOCAL_TENANT_ID') : undefined);
+    if (!localEnabled) {
+      throw new UnauthorizedException('Public authentication is not configured');
+    }
+    const candidate = header ?? this.config.get<string>('LOCAL_TENANT_ID');
     const parsed = z.uuid().safeParse(candidate);
     if (!parsed.success) {
       throw new UnauthorizedException('A valid tenant context is required');
