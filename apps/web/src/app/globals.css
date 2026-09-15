@@ -604,6 +604,32 @@ td small {
   background: var(--surface);
   box-shadow: var(--shadow);
 }
+.budget-donut-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+}
+.budget-donut {
+  width: 92px;
+  grid-row: span 2;
+  margin: 0;
+}
+.budget-donut::after {
+  inset: 14px;
+}
+.budget-card.budget-donut-card > .budget-donut:first-of-type {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+.budget-donut-copy {
+  display: grid;
+  gap: 4px;
+}
+.budget-donut-card dl {
+  grid-column: 1 / -1;
+}
 .budget-card > div:first-of-type {
   display: grid;
   gap: 4px;
@@ -646,6 +672,143 @@ td small {
   padding-top: 18px;
   border-top: 1px solid var(--line);
 }
+.categories-panel {
+  margin-top: 16px;
+}
+.category-management-grid,
+.recurring-editor-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.category-editor,
+.recurring-editor {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fdfefc;
+}
+.category-editor summary,
+.recurring-editor summary {
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.category-editor summary::-webkit-details-marker,
+.recurring-editor summary::-webkit-details-marker {
+  display: none;
+}
+.category-editor summary > span:nth-child(2),
+.recurring-editor summary > span:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  flex: 1;
+}
+.category-editor small,
+.recurring-editor small,
+.recurring-reference-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+.edit-label {
+  color: var(--forest-bright);
+  font-size: 11px;
+  font-weight: 800;
+}
+.category-edit-form,
+.recurring-edit-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 15px;
+  border-top: 1px solid var(--line);
+  background: #f7f9f6;
+}
+.category-edit-form label,
+.recurring-edit-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.category-edit-form input,
+.category-edit-form select,
+.recurring-edit-form input,
+.recurring-edit-form select {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--surface);
+  text-transform: none;
+}
+.category-edit-form .primary-button,
+.recurring-edit-form .primary-button {
+  align-self: end;
+  justify-content: center;
+}
+.review-alerts-panel {
+  padding-block: 17px;
+}
+.compact-heading {
+  padding-bottom: 10px;
+}
+.compact-empty {
+  padding: 12px;
+  border-radius: 9px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: 12px;
+}
+.alert-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.alert-strip article {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.alert-strip article > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  flex: 1;
+}
+.alert-strip small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.review-expenses-panel {
+  margin-top: 16px;
+}
+.recurring-summary-amount {
+  text-align: right;
+}
+.recurring-reference-note {
+  padding: 0 15px 12px;
+}
+.sync-result {
+  margin: 0 0 16px !important;
+  padding: 12px 14px;
+  border-radius: 9px;
+  color: var(--forest) !important;
+  background: var(--mint);
+}
 .assign-form {
   display: flex;
   gap: 8px;
@@ -684,6 +847,14 @@ td small {
   z-index: 1;
   font-size: 18px;
   font-weight: 800;
+}
+.donut-exceeded span {
+  color: var(--red);
+  font-size: 13px;
+}
+.donut-unbounded span {
+  color: var(--amber);
+  font-size: 12px;
 }
 .donut-item small {
   color: var(--muted);
@@ -741,7 +912,12 @@ td small {
   .budget-form,
   .budget-grid,
   .category-create,
-  .donut-grid {
+  .donut-grid,
+  .category-management-grid,
+  .recurring-editor-list,
+  .category-edit-form,
+  .recurring-edit-form,
+  .alert-strip {
     grid-template-columns: 1fr;
   }
   .period-selector {

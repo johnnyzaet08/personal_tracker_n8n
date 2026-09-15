@@ -13,8 +13,8 @@ import {
 import { InternalApiGuard } from '../common/internal-api.guard';
 import type { TrackerRequest } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { ListQueryDto } from '../finance/list-query.dto';
 import { AutomationService } from './automation.service';
+import { ReviewQueueQueryDto } from './review-query.dto';
 
 @ApiTags('automation')
 @Controller()
@@ -22,7 +22,10 @@ export class AutomationController {
   constructor(private readonly automation: AutomationService) {}
 
   @Get('api/v1/review-queue')
-  reviewQueue(@Req() request: TrackerRequest, @Query() query: ListQueryDto): Promise<object> {
+  reviewQueue(
+    @Req() request: TrackerRequest,
+    @Query() query: ReviewQueueQueryDto,
+  ): Promise<object> {
     return this.automation.reviewQueue(request.tenantId, query);
   }
 

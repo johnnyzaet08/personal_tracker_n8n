@@ -46,6 +46,7 @@ Update versions only through an explicit dependency task with compatibility rese
 
 - Core tenancy, users, memberships, integrations, and idempotent source events exist.
 - Finance accounts, merchants, categories, transactions, recurring payment patterns and obligations, monthly budgets and allocations, classification, action runs, review queue, and notifications exist.
+- Finance permite editar categorías y patrones recurrentes. La sincronización mensual crea faltantes y actualiza sólo obligaciones pendientes no conciliadas; preserva historial y vencimientos manuales. La clasificación de débitos sin categoría vive en Alertas y revisión.
 - `habits` and `health` schemas are reserved but intentionally contain no domain tables.
 - The development seed creates one deterministic tenant, user, membership, and a Gmail integration while preserving an existing connection state. It creates no fake financial data.
 - Empty dashboard and list responses are valid supported states.

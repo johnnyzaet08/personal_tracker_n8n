@@ -4,24 +4,15 @@ import { PageHeader } from '@/components/page-header';
 import { apiGet } from '@/lib/api';
 import { currentPeriodInCostaRica } from '@/lib/date';
 import type { CategoryRecord } from '@/lib/types';
-import { assignCategory, createCategory, saveBudget } from './actions';
+import { createCategory, saveBudget, updateCategory } from './actions';
 
 export const dynamic = 'force-dynamic';
 
-type Uncategorized = {
-  id: string;
-  description: string;
-  amount: string;
-  currency: string;
-  occurredAt: string;
-  merchant: { displayName: string } | null;
-};
 type Planning = {
   period: string;
   currency: string;
   budget: BudgetSummary | null;
   categories: CategoryRecord[];
-  uncategorized: Uncategorized[];
 };
 const groups = [
   ['savings', 'Ahorro'],
@@ -32,6 +23,21 @@ const groups = [
 const colors = ['#236b4f', '#b45545', '#bf7a28', '#4b6f8f'];
 const money = (value: string, currency: string) =>
   new Intl.NumberFormat('es-CR', { style: 'currency', currency }).format(Number(value));
+
+function budgetDonut(assignedValue: string, committedValue: string) {
+  const assigned = Number(assignedValue);
+  const committed = Number(committedValue);
+  if (assigned <= 0)
+    return { fill: committed > 0 ? 100 : 0, label: 'Sin límite', tone: 'unbounded' };
+  const used = (committed / assigned) * 100;
+  if (used > 100)
+    return { fill: 100, label: `${(used - 100).toFixed(0)}% excedido`, tone: 'exceeded' };
+  return {
+    fill: Math.max(0, used),
+    label: `${Math.max(0, 100 - used).toFixed(0)}% libre`,
+    tone: 'normal',
+  };
+}
 
 export default async function CategoriesPage({
   searchParams,
@@ -51,7 +57,7 @@ export default async function CategoriesPage({
     <>
       <PageHeader
         title="Plan mensual"
-        description="Presupuesto, categorías y gastos pendientes de clasificación para un mes y moneda."
+        description="Presupuesto, categorías y consumo planificado para un mes y moneda."
         actions={
           <form className="period-selector">
             <input name="period" type="month" defaultValue={period} />
@@ -106,27 +112,34 @@ export default async function CategoriesPage({
       </section>
 
       {planning.budget && (
-        <section className="budget-grid" aria-label="Resumen del presupuesto">
+        <section className="budget-grid" aria-label="Overview del presupuesto">
           {planning.budget.groups.map((group) => {
-            const usedRatio =
-              Number(group.assigned) > 0
-                ? Math.min(100, (Number(group.committed) / Number(group.assigned)) * 100)
-                : 0;
+            const visual = budgetDonut(group.assigned, group.committed);
             return (
-              <article className="budget-card" key={group.key}>
-                <span
-                  className="category-swatch"
-                  style={{ background: colors[groups.findIndex(([key]) => key === group.key)] }}
-                />
-                <div>
+              <article className="budget-card budget-donut-card" key={group.key}>
+                <div
+                  className={`donut budget-donut donut-${visual.tone}`}
+                  {...(visual.tone === 'unbounded'
+                    ? { role: 'img', 'aria-label': `${group.label}: sin límite configurado` }
+                    : {
+                        role: 'progressbar',
+                        'aria-label': `${group.label}: ${visual.fill.toFixed(0)}% comprometido, ${visual.label}`,
+                        'aria-valuemin': 0,
+                        'aria-valuemax': 100,
+                        'aria-valuenow': visual.fill,
+                      })}
+                  style={{
+                    background: `conic-gradient(${visual.tone === 'exceeded' ? 'var(--red)' : colors[groups.findIndex(([key]) => key === group.key)]} 0 ${visual.fill}%, var(--surface-soft) ${visual.fill}% 100%)`,
+                  }}
+                >
+                  <span>{visual.label}</span>
+                </div>
+                <div className="budget-donut-copy">
                   <strong>{group.label}</strong>
                   <small>
                     {Number(group.percentage).toFixed(2)}% · {money(group.assigned, currency)}{' '}
                     asignado
                   </small>
-                </div>
-                <div className="budget-progress">
-                  <span style={{ width: `${usedRatio}%` }} />
                 </div>
                 <dl>
                   <div>
@@ -150,105 +163,91 @@ export default async function CategoriesPage({
         </section>
       )}
 
-      <section className="dashboard-grid">
-        <article className="panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Categorías disponibles</h2>
-              <p>{planning.categories.length} categorías · gasto efectivo del mes</p>
-            </div>
+      <section className="panel categories-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Categorías disponibles</h2>
+            <p>{planning.categories.length} categorías · gasto efectivo del mes</p>
           </div>
-          {planning.categories.length === 0 ? (
-            <EmptyState title="No hay categorías" description="Crea la primera categoría debajo." />
-          ) : (
-            <div className="card-list">
-              {planning.categories.map((item) => (
-                <article key={item.id}>
+        </div>
+        {planning.categories.length === 0 ? (
+          <EmptyState title="No hay categorías" description="Crea la primera categoría debajo." />
+        ) : (
+          <div className="category-management-grid">
+            {planning.categories.map((item) => (
+              <details className="category-editor" key={item.id}>
+                <summary>
                   <span
                     className="category-swatch"
                     style={{ background: item.color ?? '#d6ddd7' }}
                   />
-                  <div>
+                  <span>
                     <strong>{item.name}</strong>
                     <small>
                       {groups.find(([key]) => key === item.budgetGroup)?.[1] ?? 'Grupo pendiente'} ·{' '}
                       {money(item.spent ?? '0', currency)}
                     </small>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-          <form action={createCategory} className="category-create">
-            <input type="hidden" name="period" value={period} />
-            <input type="hidden" name="currency" value={currency} />
-            <label>
-              Nombre
-              <input name="name" required />
-            </label>
-            <label>
-              Grupo
-              <select name="budgetGroup" defaultValue="needs">
-                {groups.map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Color
-              <input name="color" type="color" defaultValue="#236b4f" />
-            </label>
-            <button className="primary-button">Agregar categoría</button>
-          </form>
-        </article>
-
-        <article className="panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Sin categoría</h2>
-              <p>Estos gastos no participan en un grupo hasta que los asignes.</p>
-            </div>
-          </div>
-          {planning.uncategorized.length === 0 ? (
-            <EmptyState
-              title="Todo está clasificado"
-              description="No hay gastos confirmados pendientes de categoría en este período."
-            />
-          ) : (
-            <div className="card-list">
-              {planning.uncategorized.map((item) => (
-                <article key={item.id}>
-                  <div>
-                    <strong>{item.merchant?.displayName ?? item.description}</strong>
-                    <small>
-                      {item.occurredAt.slice(0, 10)} · {money(item.amount, item.currency)}
-                    </small>
-                  </div>
-                  <form action={assignCategory} className="assign-form">
-                    <input type="hidden" name="transactionId" value={item.id} />
-                    <input type="hidden" name="period" value={period} />
-                    <input type="hidden" name="currency" value={currency} />
-                    <select name="categoryId" required defaultValue="">
-                      <option value="" disabled>
-                        Asignar categoría
-                      </option>
-                      {planning.categories
-                        .filter((category) => category.status === 'active')
-                        .map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
+                  </span>
+                  <span className="edit-label">Editar</span>
+                </summary>
+                <form action={updateCategory} className="category-edit-form">
+                  <input type="hidden" name="categoryId" value={item.id} />
+                  <input type="hidden" name="period" value={period} />
+                  <input type="hidden" name="currency" value={currency} />
+                  <label>
+                    Nombre
+                    <input name="name" defaultValue={item.name} required />
+                  </label>
+                  <label>
+                    Tipo
+                    <select name="type" defaultValue={item.type}>
+                      <option value="expense">Gasto</option>
+                      <option value="income">Ingreso</option>
                     </select>
-                    <button className="primary-button">Asignar</button>
-                  </form>
-                </article>
+                  </label>
+                  <label>
+                    Grupo
+                    <select name="budgetGroup" defaultValue={item.budgetGroup ?? 'needs'}>
+                      {groups.map(([key, label]) => (
+                        <option key={key} value={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Color
+                    <input name="color" type="color" defaultValue={item.color ?? '#236b4f'} />
+                  </label>
+                  <button className="primary-button">Guardar cambios</button>
+                </form>
+              </details>
+            ))}
+          </div>
+        )}
+        <form action={createCategory} className="category-create">
+          <input type="hidden" name="period" value={period} />
+          <input type="hidden" name="currency" value={currency} />
+          <label>
+            Nombre
+            <input name="name" required />
+          </label>
+          <label>
+            Grupo
+            <select name="budgetGroup" defaultValue="needs">
+              {groups.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
               ))}
-            </div>
-          )}
-        </article>
+            </select>
+          </label>
+          <label>
+            Color
+            <input name="color" type="color" defaultValue="#236b4f" />
+          </label>
+          <button className="primary-button">Agregar categoría</button>
+        </form>
       </section>
     </>
   );

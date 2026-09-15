@@ -4,7 +4,13 @@ import { PageHeader } from '@/components/page-header';
 import { apiGet } from '@/lib/api';
 import { currentPeriodInCostaRica, todayInCostaRica } from '@/lib/date';
 import type { CategoryRecord, RecurringRecord } from '@/lib/types';
-import { createCategory, createRecurring, materializeCurrent, payObligation } from './actions';
+import {
+  createCategory,
+  createRecurring,
+  materializeCurrent,
+  payObligation,
+  updateRecurring,
+} from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,9 +29,19 @@ type Obligation = {
 export default async function RecurringPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    currency?: string;
+    synced?: string;
+    created?: string;
+    updated?: string;
+    unchanged?: string;
+    skipped?: string;
+  }>;
 }) {
-  const period = (await searchParams).period ?? currentPeriodInCostaRica();
+  const search = await searchParams;
+  const period = search.period ?? currentPeriodInCostaRica();
+  const currency = (search.currency ?? 'CRC').toUpperCase();
   const localToday = todayInCostaRica();
   const localDay = Number(localToday.slice(8, 10));
   const [response, categories, obligations] = await Promise.all([
@@ -33,11 +49,21 @@ export default async function RecurringPage({
     apiGet<PaginatedResponse<CategoryRecord>>('/api/v1/categories?pageSize=100'),
     apiGet<Obligation[]>(`/api/v1/recurring-obligations?period=${period}`),
   ]);
+  const activeExpenseCategories = categories.data.filter(
+    (item) => item.status === 'active' && item.type === 'expense',
+  );
   return (
     <>
       <PageHeader
         title="Recurrentes"
         description="Compromisos previstos separados de gastos efectivos y conciliación bancaria."
+        actions={
+          <form className="period-selector">
+            <input name="period" type="month" defaultValue={period} />
+            <input name="currency" type="hidden" value={currency} />
+            <button className="primary-button">Ver</button>
+          </form>
+        }
       />
       <section className="panel form-panel">
         <div className="panel-heading">
@@ -46,8 +72,10 @@ export default async function RecurringPage({
             <p>Crear un patrón no registra un débito bancario.</p>
           </div>
         </div>
-        {categories.data.length === 0 ? (
+        {activeExpenseCategories.length === 0 ? (
           <form action={createCategory} className="inline-form">
+            <input type="hidden" name="period" value={period} />
+            <input type="hidden" name="currency" value={currency} />
             <label>
               Categoría mínima
               <input name="categoryName" required placeholder="Ej. Servicios" />
@@ -56,6 +84,8 @@ export default async function RecurringPage({
           </form>
         ) : (
           <form action={createRecurring} className="form-grid">
+            <input type="hidden" name="period" value={period} />
+            <input type="hidden" name="filterCurrency" value={currency} />
             <label>
               Nombre
               <input name="name" required />
@@ -70,7 +100,7 @@ export default async function RecurringPage({
             </label>
             <label>
               Moneda
-              <input name="currency" defaultValue="CRC" pattern="[A-Z]{3}" required />
+              <input name="currency" defaultValue={currency} pattern="[A-Z]{3}" required />
             </label>
             <label>
               Categoría
@@ -78,13 +108,11 @@ export default async function RecurringPage({
                 <option value="" disabled>
                   Selecciona
                 </option>
-                {categories.data
-                  .filter((item) => item.status === 'active')
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
+                {activeExpenseCategories.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -114,13 +142,21 @@ export default async function RecurringPage({
           </div>
           <form action={materializeCurrent}>
             <input type="hidden" name="period" value={period} />
-            <button className="primary-button">Generar mes</button>
+            <input type="hidden" name="currency" value={currency} />
+            <button className="primary-button">Sincronizar mes</button>
           </form>
         </div>
+        {search.synced === '1' && (
+          <p className="sync-result" role="status">
+            Mes sincronizado sin duplicados: {search.created ?? '0'} creadas,{' '}
+            {search.updated ?? '0'} actualizadas y {search.unchanged ?? '0'} sin cambios.{' '}
+            {search.skipped ?? '0'} obligaciones pagadas o conciliadas quedaron protegidas.
+          </p>
+        )}
         {obligations.length === 0 ? (
           <EmptyState
             title="Aún no hay obligaciones en este mes"
-            description="Genera el mes para materializar patrones activos; la operación es idempotente."
+            description="Sincroniza el mes para crear obligaciones faltantes y actualizar pendientes sin duplicarlas."
           />
         ) : (
           <div className="card-list">
@@ -140,6 +176,8 @@ export default async function RecurringPage({
                   {item.paymentStatus === 'pending' && (
                     <form action={payObligation} className="pay-form">
                       <input type="hidden" name="id" value={item.id} />
+                      <input type="hidden" name="period" value={period} />
+                      <input type="hidden" name="currency" value={currency} />
                       <input
                         name="actualAmount"
                         defaultValue={item.expectedAmount}
@@ -177,21 +215,96 @@ export default async function RecurringPage({
             description="El modelo está listo; la detección se habilitará cuando existan transacciones reales suficientes."
           />
         ) : (
-          <div className="card-list">
+          <div className="recurring-editor-list">
             {response.data.map((item) => (
-              <article key={item.id}>
-                <div>
-                  <strong>{item.name}</strong>
-                  <small>
-                    {item.merchant?.displayName ?? 'Comercio pendiente'} · {item.frequency}
-                  </small>
+              <details className="recurring-editor" key={item.id}>
+                <summary>
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>
+                      {item.category?.name ?? 'Sin categoría'} ·{' '}
+                      {item.status === 'paused' ? 'Pausado' : 'Activo'} · día {item.dueDay ?? '—'}
+                    </small>
+                  </span>
+                  <span className="recurring-summary-amount">
+                    <strong>
+                      {item.expectedAmount ?? '—'} {item.currency}
+                    </strong>
+                    <small>Editar</small>
+                  </span>
+                </summary>
+                <div className="recurring-reference-note">
+                  Cuenta: {item.account?.alias ?? 'Sin cuenta vinculada'} · Comercio:{' '}
+                  {item.merchant?.displayName ?? 'Sin comercio vinculado'}
                 </div>
-                <div className="card-end">
-                  <strong>
-                    {item.expectedAmount ?? '—'} {item.currency}
-                  </strong>
-                </div>
-              </article>
+                <form action={updateRecurring} className="recurring-edit-form">
+                  <input type="hidden" name="id" value={item.id} />
+                  <input type="hidden" name="period" value={period} />
+                  <input type="hidden" name="filterCurrency" value={currency} />
+                  <label>
+                    Nombre
+                    <input name="name" defaultValue={item.name} required />
+                  </label>
+                  <label>
+                    Alias de conciliación
+                    <input
+                      name="aliases"
+                      defaultValue={Array.isArray(item.aliases) ? item.aliases.join(', ') : ''}
+                      placeholder="Separados por coma"
+                    />
+                  </label>
+                  <label>
+                    Monto esperado
+                    <input
+                      name="expectedAmount"
+                      inputMode="decimal"
+                      defaultValue={item.expectedAmount ?? ''}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Moneda
+                    <input
+                      name="currency"
+                      pattern="[A-Z]{3}"
+                      defaultValue={item.currency}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Categoría
+                    <select name="categoryId" defaultValue={item.category?.id ?? ''} required>
+                      <option value="" disabled>
+                        Selecciona
+                      </option>
+                      {activeExpenseCategories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Día de vencimiento
+                    <input
+                      name="dueDay"
+                      type="number"
+                      min="1"
+                      max="31"
+                      defaultValue={item.dueDay ?? localDay}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Estado
+                    <select name="status" defaultValue={item.status}>
+                      <option value="active">Activo</option>
+                      <option value="paused">Pausado</option>
+                    </select>
+                  </label>
+                  <button className="primary-button">Guardar cambios</button>
+                </form>
+              </details>
             ))}
           </div>
         )}
