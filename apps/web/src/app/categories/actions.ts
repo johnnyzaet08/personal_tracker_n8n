@@ -42,11 +42,15 @@ export async function createCategory(form: FormData): Promise<void> {
   redirect(`${destination(form)}&categoryCreated=1`);
 }
 
-export async function assignCategory(form: FormData): Promise<void> {
-  await apiWrite(`/api/v1/transactions/${required(form, 'transactionId')}/category`, 'PATCH', {
-    categoryId: required(form, 'categoryId'),
+export async function updateCategory(form: FormData): Promise<void> {
+  await apiWrite(`/api/v1/categories/${required(form, 'categoryId')}`, 'PATCH', {
+    name: required(form, 'name'),
+    type: required(form, 'type'),
+    budgetGroup: required(form, 'budgetGroup'),
+    color: required(form, 'color'),
   });
   revalidatePath('/categories');
   revalidatePath('/');
-  redirect(`${destination(form)}&assigned=1`);
+  revalidatePath('/review');
+  redirect(`${destination(form)}&categoryUpdated=1`);
 }

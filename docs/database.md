@@ -89,6 +89,14 @@ Los movimientos anteriores sin reconciliation_key se comparan también por su
 
 referencia y contexto institucional. No se reescriben valores del ledger existente.
 
+## Sincronización de obligaciones recurrentes
+
+`20260914120000_preserve_manual_obligation_due_date` agrega
+`due_at_manually_overridden` a `finance.recurring_obligations`. El indicador permite
+que la sincronización mensual actualice monto, moneda y categoría de una obligación
+pendiente sin borrar un vencimiento ajustado por la persona usuaria. Las reglas
+completas están en ADR 0003.
+
 Prisma declara los índices de soporte; la migración SQL declara los FKs compuestos,
 
 checks e índice parcial que no se representan completamente en el cliente.

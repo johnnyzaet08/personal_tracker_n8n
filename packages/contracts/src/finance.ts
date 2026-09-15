@@ -53,9 +53,21 @@ export const recurringPaymentInputSchema = z.object({
   frequency: z.literal('monthly').default('monthly'),
 });
 
-export const recurringPaymentUpdateSchema = recurringPaymentInputSchema.partial().extend({
-  status: z.enum(['active', 'paused']).optional(),
-});
+export const recurringPaymentUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255).optional(),
+    aliases: z.array(z.string().trim().min(1).max(255)).max(20).optional(),
+    expectedAmount: decimalStringSchema.optional(),
+    currency: currencySchema.optional(),
+    categoryId: uuidSchema.optional(),
+    accountId: uuidSchema.nullable().optional(),
+    merchantId: uuidSchema.nullable().optional(),
+    startAt: z.iso.date().optional(),
+    dueDay: z.number().int().min(1).max(31).optional(),
+    frequency: z.literal('monthly').optional(),
+    status: z.enum(['active', 'paused']).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required');
 
 export const materializeObligationsSchema = z.object({
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/u),
@@ -77,6 +89,19 @@ export const categoryInputSchema = z.object({
     .optional(),
   budgetGroup: z.enum(['savings', 'needs', 'provisions', 'play']).default('needs'),
 });
+
+export const categoryUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(160).optional(),
+    type: z.enum(['expense', 'income']).optional(),
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/u)
+      .nullable()
+      .optional(),
+    budgetGroup: z.enum(['savings', 'needs', 'provisions', 'play']).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required');
 
 export const categoryAssignmentSchema = z.object({ categoryId: uuidSchema });
 
@@ -137,5 +162,6 @@ export type RecurringPaymentUpdate = z.infer<typeof recurringPaymentUpdateSchema
 export type MaterializeObligations = z.infer<typeof materializeObligationsSchema>;
 export type ObligationPayment = z.infer<typeof obligationPaymentSchema>;
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
+export type CategoryUpdate = z.infer<typeof categoryUpdateSchema>;
 export type CategoryAssignment = z.infer<typeof categoryAssignmentSchema>;
 export type MonthlyBudgetInput = z.infer<typeof monthlyBudgetInputSchema>;

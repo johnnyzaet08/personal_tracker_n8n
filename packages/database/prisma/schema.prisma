@@ -310,6 +310,7 @@ model RecurringObligation {
   currency           String    @db.Char(3)
   categoryId         String?   @map("category_id") @db.Uuid
   dueAt              DateTime  @map("due_at") @db.Timestamptz(6)
+  dueAtManuallyOverridden Boolean @default(false) @map("due_at_manually_overridden")
   paidAt             DateTime? @map("paid_at") @db.Timestamptz(6)
   paymentStatus      String    @default("pending") @map("payment_status") @db.VarChar(32)
   reconciliationStatus String  @default("unreconciled") @map("reconciliation_status") @db.VarChar(32)

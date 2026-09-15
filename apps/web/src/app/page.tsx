@@ -12,6 +12,21 @@ function money(value: string, currency: string): string {
   return new Intl.NumberFormat('es-CR', { style: 'currency', currency }).format(Number(value));
 }
 
+function budgetDonut(assignedValue: string, committedValue: string) {
+  const assigned = Number(assignedValue);
+  const committed = Number(committedValue);
+  if (assigned <= 0)
+    return { fill: committed > 0 ? 100 : 0, label: 'Sin límite', tone: 'unbounded' };
+  const used = (committed / assigned) * 100;
+  if (used > 100)
+    return { fill: 100, label: `${(used - 100).toFixed(0)}% excedido`, tone: 'exceeded' };
+  return {
+    fill: Math.max(0, used),
+    label: `${Math.max(0, 100 - used).toFixed(0)}% libre`,
+    tone: 'normal',
+  };
+}
+
 export default async function Home({
   searchParams,
 }: {
@@ -99,22 +114,25 @@ export default async function Home({
           ) : (
             <div className="donut-grid">
               {summary.budget.groups.map((group) => {
-                const ratio =
-                  Number(group.assigned) > 0
-                    ? Math.max(
-                        0,
-                        Math.min(100, (Number(group.committed) / Number(group.assigned)) * 100),
-                      )
-                    : 0;
+                const visual = budgetDonut(group.assigned, group.committed);
                 return (
                   <article key={group.key} className="donut-item">
                     <div
-                      className="donut"
+                      className={`donut donut-${visual.tone}`}
+                      {...(visual.tone === 'unbounded'
+                        ? { role: 'img', 'aria-label': `${group.label}: sin límite configurado` }
+                        : {
+                            role: 'progressbar',
+                            'aria-label': `${group.label}: ${visual.fill.toFixed(0)}% comprometido, ${visual.label}`,
+                            'aria-valuemin': 0,
+                            'aria-valuemax': 100,
+                            'aria-valuenow': visual.fill,
+                          })}
                       style={{
-                        background: `conic-gradient(var(--forest-bright) 0 ${ratio}%, var(--surface-soft) ${ratio}% 100%)`,
+                        background: `conic-gradient(${visual.tone === 'exceeded' ? 'var(--red)' : 'var(--forest-bright)'} 0 ${visual.fill}%, var(--surface-soft) ${visual.fill}% 100%)`,
                       }}
                     >
-                      <span>{ratio.toFixed(0)}%</span>
+                      <span>{visual.label}</span>
                     </div>
                     <strong>{group.label}</strong>
                     <small>{money(group.committed, currency)} comprometido</small>
@@ -122,29 +140,6 @@ export default async function Home({
                   </article>
                 );
               })}
-            </div>
-          )}
-        </article>
-        <article className="panel panel-wide">
-          <div className="panel-heading">
-            <div>
-              <h2>Evolución temporal</h2>
-              <p>Débitos e ingresos confirmados</p>
-            </div>
-          </div>
-          {summary.timeline.length === 0 ? (
-            <EmptyState
-              title="Aún no hay movimientos"
-              description="La evolución aparecerá cuando la API reciba transacciones válidas."
-            />
-          ) : (
-            <div className="timeline-bars">
-              {summary.timeline.map((point) => (
-                <div key={point.date} className="timeline-day">
-                  <span style={{ height: `${Math.min(100, Number(point.debit))}%` }} />
-                  <small>{point.date.slice(5)}</small>
-                </div>
-              ))}
             </div>
           )}
         </article>

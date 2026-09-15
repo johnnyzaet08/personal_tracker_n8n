@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@tracker/database';
 import type {
   CategoryInput,
+  CategoryUpdate,
   BudgetSummary,
   DashboardSummary,
   MonthlyBudgetInput,
@@ -220,17 +221,22 @@ export class FinanceService {
     transactionId: string,
     categoryId: string,
   ): Promise<object> {
-    const [transaction, category] = await Promise.all([
-      this.prisma.client.transaction.findFirst({ where: { id: transactionId, tenantId } }),
-      this.prisma.client.category.findFirst({
-        where: { id: categoryId, tenantId, status: 'active' },
-      }),
-    ]);
-    if (!transaction || !category)
-      throw new NotFoundException('Transaction or category not found for this tenant');
-    return this.prisma.client.transaction.update({
-      where: { id: transactionId },
-      data: { categoryId },
+    return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
+      const [transaction, category] = await Promise.all([
+        tx.transaction.findFirst({
+          where: { id: transactionId, tenantId, direction: 'debit', status: 'posted' },
+        }),
+        tx.category.findFirst({
+          where: { id: categoryId, tenantId, status: 'active', type: 'expense' },
+        }),
+      ]);
+      if (!transaction || !category)
+        throw new NotFoundException('Transaction or category not found for this tenant');
+      return tx.transaction.update({
+        where: { id: transactionId },
+        data: { categoryId, manuallyModifiedAt: new Date() },
+      });
     });
   }
 
@@ -283,8 +289,43 @@ export class FinanceService {
         slug: count ? `${base}-${count + 1}` : base,
         type: input.type,
         color: input.color,
-        budgetGroup: input.budgetGroup,
+        budgetGroup: input.type === 'expense' ? input.budgetGroup : null,
       },
+    });
+  }
+
+  async updateCategory(tenantId: string, id: string, input: CategoryUpdate): Promise<object> {
+    return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
+      const category = await tx.category.findFirst({
+        where: { id, tenantId },
+        select: { id: true, type: true },
+      });
+      if (!category) throw new NotFoundException('Category not found');
+      const finalType = input.type ?? category.type;
+      if (category.type !== finalType) {
+        const [transactions, recurring, obligations] = await Promise.all([
+          tx.transaction.count({ where: { tenantId, categoryId: id } }),
+          tx.recurringPayment.count({ where: { tenantId, categoryId: id } }),
+          tx.recurringObligation.count({ where: { tenantId, categoryId: id } }),
+        ]);
+        if (transactions + recurring + obligations > 0)
+          throw new ConflictException({
+            code: 'CATEGORY_TYPE_CONFLICT',
+            message: 'A category in use cannot change type',
+          });
+      }
+      return tx.category.update({
+        where: { id },
+        data: {
+          ...input,
+          ...(finalType === 'income'
+            ? { budgetGroup: null }
+            : category.type === 'income' && input.budgetGroup === undefined
+              ? { budgetGroup: 'needs' }
+              : {}),
+        },
+      });
     });
   }
 
@@ -312,25 +353,34 @@ export class FinanceService {
   }
 
   async createRecurring(tenantId: string, input: RecurringPaymentInput): Promise<object> {
-    await this.ensureReferences(tenantId, input.categoryId, input.accountId, input.merchantId);
-    const startAt = this.dateAtCostaRica(input.startAt);
-    const dueDay = input.dueDay ?? Number(input.startAt.slice(8, 10));
-    return this.prisma.client.recurringPayment.create({
-      data: {
+    return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
+      await this.ensureReferences(
         tenantId,
-        name: input.name,
-        aliases: input.aliases,
-        expectedAmount: new Prisma.Decimal(input.expectedAmount),
-        currency: input.currency,
-        categoryId: input.categoryId,
-        accountId: input.accountId,
-        merchantId: input.merchantId,
-        startAt,
-        dueDay,
-        frequency: input.frequency,
-        nextExpectedAt: this.dueAt(input.startAt.slice(0, 7), dueDay),
-      },
-      include: { category: true, account: true, merchant: true },
+        input.categoryId,
+        input.accountId,
+        input.merchantId,
+        tx,
+      );
+      const startAt = this.dateAtCostaRica(input.startAt);
+      const dueDay = input.dueDay ?? Number(input.startAt.slice(8, 10));
+      return tx.recurringPayment.create({
+        data: {
+          tenantId,
+          name: input.name,
+          aliases: input.aliases,
+          expectedAmount: new Prisma.Decimal(input.expectedAmount),
+          currency: input.currency,
+          categoryId: input.categoryId,
+          accountId: input.accountId,
+          merchantId: input.merchantId,
+          startAt,
+          dueDay,
+          frequency: input.frequency,
+          nextExpectedAt: this.nextDueAt(startAt, dueDay),
+        },
+        include: { category: true, account: true, merchant: true },
+      });
     });
   }
 
@@ -339,75 +389,168 @@ export class FinanceService {
     id: string,
     input: RecurringPaymentUpdate,
   ): Promise<object> {
-    const current = await this.prisma.client.recurringPayment.findFirst({
-      where: { id, tenantId },
-    });
-    if (!current) throw new NotFoundException('Recurring payment not found');
-    if (input.categoryId || input.accountId || input.merchantId)
-      await this.ensureReferences(tenantId, input.categoryId, input.accountId, input.merchantId);
-    return this.prisma.client.recurringPayment.update({
-      where: { id },
-      data: {
-        ...(input.name ? { name: input.name } : {}),
-        ...(input.aliases ? { aliases: input.aliases } : {}),
-        ...(input.expectedAmount
-          ? { expectedAmount: new Prisma.Decimal(input.expectedAmount) }
-          : {}),
-        ...(input.currency ? { currency: input.currency } : {}),
-        ...(input.categoryId ? { categoryId: input.categoryId } : {}),
-        ...(input.accountId ? { accountId: input.accountId } : {}),
-        ...(input.merchantId ? { merchantId: input.merchantId } : {}),
-        ...(input.dueDay ? { dueDay: input.dueDay } : {}),
-        ...(input.status
-          ? { status: input.status, pausedAt: input.status === 'paused' ? new Date() : null }
-          : {}),
-      },
+    return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
+      const current = await tx.recurringPayment.findFirst({
+        where: { id, tenantId },
+      });
+      if (!current) throw new NotFoundException('Recurring payment not found');
+      if (input.categoryId || input.accountId || input.merchantId)
+        await this.ensureReferences(
+          tenantId,
+          input.categoryId,
+          input.accountId ?? undefined,
+          input.merchantId ?? undefined,
+          tx,
+        );
+      const startAt = input.startAt ? this.dateAtCostaRica(input.startAt) : current.startAt;
+      const dueDay = input.dueDay ?? current.dueDay;
+      const status = input.status ?? current.status;
+      return tx.recurringPayment.update({
+        where: { id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
+          ...(input.expectedAmount !== undefined
+            ? { expectedAmount: new Prisma.Decimal(input.expectedAmount) }
+            : {}),
+          ...(input.currency !== undefined ? { currency: input.currency } : {}),
+          ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+          ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+          ...(input.merchantId !== undefined ? { merchantId: input.merchantId } : {}),
+          ...(input.startAt !== undefined ? { startAt } : {}),
+          ...(input.dueDay !== undefined ? { dueDay: input.dueDay } : {}),
+          ...(input.frequency !== undefined ? { frequency: input.frequency } : {}),
+          ...(input.startAt !== undefined ||
+          input.dueDay !== undefined ||
+          input.status !== undefined
+            ? {
+                nextExpectedAt:
+                  status === 'active' && dueDay ? this.nextDueAt(startAt, dueDay) : null,
+              }
+            : {}),
+          ...(input.status !== undefined
+            ? { status: input.status, pausedAt: input.status === 'paused' ? new Date() : null }
+            : {}),
+        },
+        include: { category: true, account: true, merchant: true },
+      });
     });
   }
 
   async materialize(tenantId: string, period: string): Promise<object> {
     const [year, month] = period.split('-').map(Number);
     if (!year || !month) throw new BadRequestException('Invalid period');
-    const patterns = await this.prisma.client.recurringPayment.findMany({
-      where: {
-        tenantId,
-        status: 'active',
-        frequency: 'monthly',
-        startAt: { lt: new Date(Date.UTC(year, month, 1)) },
-      },
-    });
-    const created: string[] = [];
-    for (const pattern of patterns) {
-      if (!pattern.expectedAmount || !pattern.dueDay) continue;
-      try {
-        const row = await this.prisma.client.recurringObligation.create({
-          data: {
-            tenantId,
-            recurringPaymentId: pattern.id,
-            period,
-            expectedAmount: pattern.expectedAmount,
-            currency: pattern.currency,
-            categoryId: pattern.categoryId,
-            dueAt: this.dueAt(period, pattern.dueDay),
+    return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
+      const patterns = await tx.recurringPayment.findMany({
+        where: {
+          tenantId,
+          status: 'active',
+          frequency: 'monthly',
+          startAt: { lt: new Date(Date.UTC(year, month, 1)) },
+        },
+      });
+      const result = {
+        period,
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        skipped: 0,
+        ids: [] as string[],
+        updatedIds: [] as string[],
+      };
+      for (const pattern of patterns) {
+        if (!pattern.expectedAmount || !pattern.dueDay) continue;
+        const existing = await tx.recurringObligation.findUnique({
+          where: {
+            tenantId_recurringPaymentId_period: {
+              tenantId,
+              recurringPaymentId: pattern.id,
+              period,
+            },
           },
         });
-        created.push(row.id);
-      } catch (error) {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002')
-          throw error;
+        const dueAt = this.dueAt(period, pattern.dueDay);
+        if (dueAt < pattern.startAt) continue;
+        const afterMaterializedPeriod = new Date(Date.UTC(year, month, 1, 6));
+        const nextReference =
+          afterMaterializedPeriod > new Date() ? afterMaterializedPeriod : new Date();
+        const nextExpectedAt = this.nextDueAt(pattern.startAt, pattern.dueDay, nextReference);
+        if (pattern.nextExpectedAt?.getTime() !== nextExpectedAt.getTime())
+          await tx.recurringPayment.update({
+            where: { id: pattern.id },
+            data: { nextExpectedAt },
+          });
+        if (!existing) {
+          const row = await tx.recurringObligation.create({
+            data: {
+              tenantId,
+              recurringPaymentId: pattern.id,
+              period,
+              expectedAmount: pattern.expectedAmount,
+              currency: pattern.currency,
+              categoryId: pattern.categoryId,
+              dueAt,
+            },
+          });
+          result.created += 1;
+          result.ids.push(row.id);
+          continue;
+        }
+        const canSynchronize =
+          existing.paymentStatus === 'pending' &&
+          existing.reconciliationStatus === 'unreconciled' &&
+          existing.transactionId === null;
+        if (!canSynchronize) {
+          result.skipped += 1;
+          continue;
+        }
+        const changed =
+          !existing.expectedAmount.equals(pattern.expectedAmount) ||
+          existing.currency !== pattern.currency ||
+          existing.categoryId !== pattern.categoryId ||
+          (!existing.dueAtManuallyOverridden && existing.dueAt.getTime() !== dueAt.getTime());
+        if (canSynchronize && changed) {
+          await tx.recurringObligation.update({
+            where: { id: existing.id },
+            data: {
+              expectedAmount: pattern.expectedAmount,
+              currency: pattern.currency,
+              categoryId: pattern.categoryId,
+              ...(!existing.dueAtManuallyOverridden ? { dueAt } : {}),
+            },
+          });
+          result.updated += 1;
+          result.updatedIds.push(existing.id);
+        } else {
+          result.unchanged += 1;
+        }
       }
-    }
-    return { period, created: created.length, ids: created };
+      return result;
+    });
   }
 
   async updateObligation(tenantId: string, id: string, dueAt: string): Promise<object> {
-    const obligation = await this.prisma.client.recurringObligation.findFirst({
-      where: { id, tenantId },
-    });
-    if (!obligation) throw new NotFoundException('Recurring obligation not found');
-    return this.prisma.client.recurringObligation.update({
-      where: { id },
-      data: { dueAt: this.dateAtCostaRica(dueAt) },
+    return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
+      const obligation = await tx.recurringObligation.findFirst({
+        where: { id, tenantId },
+      });
+      if (!obligation) throw new NotFoundException('Recurring obligation not found');
+      if (
+        obligation.paymentStatus !== 'pending' ||
+        obligation.reconciliationStatus !== 'unreconciled' ||
+        obligation.transactionId !== null
+      )
+        throw new ConflictException({
+          code: 'RECURRING_OBLIGATION_PROTECTED',
+          message: 'A paid or reconciled obligation cannot be edited',
+        });
+      return tx.recurringObligation.update({
+        where: { id },
+        data: { dueAt: this.dateAtCostaRica(dueAt), dueAtManuallyOverridden: true },
+      });
     });
   }
 
@@ -487,22 +630,23 @@ export class FinanceService {
     categoryId?: string,
     accountId?: string,
     merchantId?: string,
+    database: Prisma.TransactionClient = this.prisma.client,
   ): Promise<void> {
     const [category, account, merchant] = await Promise.all([
       categoryId
-        ? this.prisma.client.category.findFirst({
-            where: { id: categoryId, tenantId },
+        ? database.category.findFirst({
+            where: { id: categoryId, tenantId, status: 'active', type: 'expense' },
             select: { id: true },
           })
         : true,
       accountId
-        ? this.prisma.client.account.findFirst({
+        ? database.account.findFirst({
             where: { id: accountId, tenantId },
             select: { id: true },
           })
         : true,
       merchantId
-        ? this.prisma.client.merchant.findFirst({
+        ? database.merchant.findFirst({
             where: { id: merchantId, tenantId },
             select: { id: true },
           })
@@ -610,6 +754,31 @@ export class FinanceService {
         6,
       ),
     );
+  }
+
+  private nextDueAt(startAt: Date, dueDay: number, reference = new Date()): Date {
+    const localReference = new Date(reference.getTime() - 6 * 60 * 60 * 1_000);
+    const referencePeriod = `${localReference.getUTCFullYear()}-${String(
+      localReference.getUTCMonth() + 1,
+    ).padStart(2, '0')}`;
+    const startPeriod = startAt.toISOString().slice(0, 7);
+    let period = startPeriod > referencePeriod ? startPeriod : referencePeriod;
+    let candidate = this.dueAt(period, dueDay);
+    const localDayStart = this.dateAtCostaRica(
+      `${localReference.getUTCFullYear()}-${String(localReference.getUTCMonth() + 1).padStart(
+        2,
+        '0',
+      )}-${String(localReference.getUTCDate()).padStart(2, '0')}`,
+    );
+    const threshold = startAt > localDayStart ? startAt : localDayStart;
+    if (candidate < threshold) {
+      const [year, month] = period.split('-').map(Number);
+      if (!year || !month) throw new BadRequestException('Invalid period');
+      const next = new Date(Date.UTC(year, month, 1));
+      period = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
+      candidate = this.dueAt(period, dueDay);
+    }
+    return candidate;
   }
 
   private transactionWhere(

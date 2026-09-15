@@ -8,7 +8,7 @@ import type {
 import { Prisma } from '@tracker/database';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
-import type { ListQueryDto } from '../finance/list-query.dto';
+import type { ReviewQueueQueryDto } from './review-query.dto';
 import { findRecurringObligationMatches, jsonObject } from '../finance/recurring-reconciliation';
 
 type Database = Prisma.TransactionClient;
@@ -286,8 +286,8 @@ export class AutomationService {
     return { id: record.id, status: record.status, idempotencyKey: record.idempotencyKey };
   }
 
-  async reviewQueue(tenantId: string, query: ListQueryDto): Promise<object> {
-    const where = { tenantId };
+  async reviewQueue(tenantId: string, query: ReviewQueueQueryDto): Promise<object> {
+    const where = { tenantId, ...(query.status ? { status: query.status } : {}) };
     const [data, total] = await this.prisma.client.$transaction([
       this.prisma.client.reviewQueue.findMany({
         where,

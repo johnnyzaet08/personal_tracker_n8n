@@ -7,10 +7,12 @@ import {
   materializeObligationsSchema,
   obligationPaymentSchema,
   categoryInputSchema,
+  categoryUpdateSchema,
   categoryAssignmentSchema,
   monthlyBudgetInputSchema,
   type CategoryAssignment,
   type CategoryInput,
+  type CategoryUpdate,
   type MonthlyBudgetInput,
   obligationUpdateSchema,
   recurringPaymentInputSchema,
@@ -50,6 +52,15 @@ export class FinanceController {
     @Body(new ZodValidationPipe(categoryInputSchema)) body: CategoryInput,
   ) {
     return this.finance.createCategory(request.tenantId, body);
+  }
+
+  @Patch('categories/:id')
+  updateCategory(
+    @Req() request: TrackerRequest,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(categoryUpdateSchema)) body: CategoryUpdate,
+  ) {
+    return this.finance.updateCategory(request.tenantId, id, body);
   }
 
   @Get('planning/summary')

@@ -10,6 +10,11 @@ function required(form: FormData, key: string): string {
   return value.trim();
 }
 
+function optional(form: FormData, key: string): string {
+  const value = form.get(key);
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 export async function createRecurring(form: FormData): Promise<void> {
   await apiWrite('/api/v1/recurring-payments', 'POST', {
     name: required(form, 'name'),
@@ -18,7 +23,7 @@ export async function createRecurring(form: FormData): Promise<void> {
     categoryId: required(form, 'categoryId'),
     startAt: required(form, 'startAt'),
     dueDay: Number(required(form, 'dueDay')),
-    aliases: required(form, 'aliases')
+    aliases: optional(form, 'aliases')
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean),
@@ -26,7 +31,31 @@ export async function createRecurring(form: FormData): Promise<void> {
   });
   revalidatePath('/recurring');
   revalidatePath('/');
-  redirect('/recurring?created=1');
+  redirect(
+    `/recurring?period=${required(form, 'period')}&currency=${required(form, 'filterCurrency')}&created=1`,
+  );
+}
+
+export async function updateRecurring(form: FormData): Promise<void> {
+  const id = required(form, 'id');
+  await apiWrite(`/api/v1/recurring-payments/${id}`, 'PATCH', {
+    name: required(form, 'name'),
+    expectedAmount: required(form, 'expectedAmount'),
+    currency: required(form, 'currency').toUpperCase(),
+    categoryId: required(form, 'categoryId'),
+    dueDay: Number(required(form, 'dueDay')),
+    aliases: optional(form, 'aliases')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    status: required(form, 'status'),
+  });
+  revalidatePath('/recurring');
+  revalidatePath('/categories');
+  revalidatePath('/');
+  redirect(
+    `/recurring?period=${required(form, 'period')}&currency=${required(form, 'filterCurrency')}&updated=1`,
+  );
 }
 
 export async function createCategory(form: FormData): Promise<void> {
@@ -35,16 +64,33 @@ export async function createCategory(form: FormData): Promise<void> {
     type: 'expense',
   });
   revalidatePath('/recurring');
-  redirect('/recurring?category=1');
+  redirect(
+    `/recurring?period=${required(form, 'period')}&currency=${required(form, 'currency')}&category=1`,
+  );
 }
 
 export async function materializeCurrent(form: FormData): Promise<void> {
-  await apiWrite('/api/v1/recurring-obligations/materialize', 'POST', {
+  const result = await apiWrite<{
+    created: number;
+    updated?: number;
+    unchanged?: number;
+    skipped?: number;
+  }>('/api/v1/recurring-obligations/materialize', 'POST', {
     period: required(form, 'period'),
   });
   revalidatePath('/recurring');
+  revalidatePath('/categories');
   revalidatePath('/');
-  redirect(`/recurring?period=${required(form, 'period')}`);
+  const params = new URLSearchParams({
+    period: required(form, 'period'),
+    currency: required(form, 'currency'),
+    synced: '1',
+    created: String(result.created ?? 0),
+    updated: String(result.updated ?? 0),
+    unchanged: String(result.unchanged ?? 0),
+    skipped: String(result.skipped ?? 0),
+  });
+  redirect(`/recurring?${params.toString()}`);
 }
 
 export async function payObligation(form: FormData): Promise<void> {
@@ -55,5 +101,7 @@ export async function payObligation(form: FormData): Promise<void> {
   });
   revalidatePath('/recurring');
   revalidatePath('/');
-  redirect('/recurring?paid=1');
+  redirect(
+    `/recurring?period=${required(form, 'period')}&currency=${required(form, 'currency')}&paid=1`,
+  );
 }

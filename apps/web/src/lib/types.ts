@@ -32,6 +32,11 @@ export interface RecurringRecord {
   frequency: string;
   nextExpectedAt: string | null;
   status: string;
+  aliases: string[];
+  dueDay: number | null;
+  startAt: string;
+  category: { id: string; name: string } | null;
+  account: { id: string; alias: string } | null;
   merchant: { displayName: string } | null;
 }
 export interface ReviewRecord {
