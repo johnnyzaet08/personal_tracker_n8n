@@ -170,6 +170,7 @@
           "name": "GMAIL_OAUTH_CREDENTIAL_REQUIRED"
         }
       },
+      "onError": "continueErrorOutput",
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 1000,
@@ -177,7 +178,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const r=$json;if(r.statusCode!==200)return [{json:{failed:true}}]; const ids=(r.body?.messages ?? []).slice(0,10).map(m=>m.id).filter(id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id));return ids.length?ids.map(id=>({json:{messageId:id,failed:false,empty:false}})):[{json:{failed:false,empty:true}}];"
+        "jsCode": "const r=$json;const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';if(r.statusCode!==200)return [{json:{failed:true,errorCode:code(r.statusCode)}}]; const ids=(r.body?.messages ?? []).slice(0,10).map(m=>m.id).filter(id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id));return ids.length?ids.map(id=>({json:{messageId:id,failed:false,empty:false}})):[{json:{failed:false,empty:true}}];"
       },
       "id": "00000002-0000-4000-8000-000000000006",
       "name": "Validate list and bound message IDs",
@@ -337,6 +338,7 @@
           "name": "GMAIL_OAUTH_CREDENTIAL_REQUIRED"
         }
       },
+      "onError": "continueErrorOutput",
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 1000,
@@ -344,7 +346,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const all=$input.all(); const failed=all.some(i=>i.json.statusCode!==200||!i.json.body?.id); return [{json:{tenantId:$('Load authorized run context').first().json.run.tenantId,failed,messages:failed?[]:all.map(i=>i.json.body)}}];"
+        "jsCode": "const all=$input.all();const bad=all.find(i=>i.json.statusCode!==200||!i.json.body?.id);const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';return [{json:{tenantId:$('Load authorized run context').first().json.run.tenantId,failed:Boolean(bad),errorCode:bad?code(bad.json.statusCode):undefined,messages:bad?[]:all.map(i=>i.json.body)}}];"
       },
       "id": "00000002-0000-4000-8000-000000000011",
       "name": "Aggregate transient preview batch",
@@ -455,7 +457,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:'GMAIL_EXECUTION_FAILED'}) }}",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:$json.errorCode ?? ($json.error ? 'GMAIL_EXECUTION_FAILED' : 'GMAIL_REQUEST_FAILED')}) }}",
         "options": {
           "timeout": 30000,
           "response": {
@@ -528,6 +530,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Report sanitized failure",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -586,6 +595,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Report sanitized failure",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -621,6 +637,7 @@
   },
   "settings": {
     "executionOrder": "v1",
+    "executionTimeout": 180,
     "errorWorkflow": "10000000-0000-4000-8000-000000000099",
     "saveDataErrorExecution": "none",
     "saveDataSuccessExecution": "none",

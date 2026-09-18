@@ -92,7 +92,7 @@ test('preview bounds messages to ten and handles empty/provider errors explicitl
   const failed = execute(workflow02, 'Validate list and bound message IDs', [
     { json: { statusCode: 401, body: { error: 'DO NOT PROPAGATE' } } },
   ]);
-  assert.deepEqual(failed, [{ json: { failed: true } }]);
+  assert.deepEqual(failed, [{ json: { failed: true, errorCode: 'GMAIL_CREDENTIALS_INVALID' } }]);
 });
 test('manual provider fetch uses API-authorized selection only', () => {
   const selected = execute(workflow03, 'Only explicitly selected pending IDs', [
@@ -187,6 +187,24 @@ test('Gmail requests are readonly and do not request inline attachments', () => 
     }
 });
 
+test('manual Gmail workflows enforce a three-minute execution timeout', () => {
+  assert.equal(workflow02.settings.executionTimeout, 180);
+  assert.equal(workflow03.settings.executionTimeout, 180);
+});
+
+test('Gmail transport and OAuth failures report immediately through a sanitized branch', () => {
+  for (const [workflow, names] of [
+    [workflow02, ['List ten unread messages', 'Retrieve preview message content']],
+    [workflow03, ['Recheck selected Gmail message']],
+  ])
+    for (const name of names) {
+      assert.equal(node(workflow, name).onError, 'continueErrorOutput');
+      assert.deepEqual(workflow.connections[name].main[1], [
+        { node: 'Report sanitized failure', type: 'main', index: 0 },
+      ]);
+    }
+});
+
 test('fatal shared sub-workflow failure completes the run with a fixed sanitized error', () => {
   const router = node(workflow03, 'Execute shared email router');
   assert.equal(router.onError, 'continueErrorOutput');
@@ -197,8 +215,17 @@ test('fatal shared sub-workflow failure completes the run with a fixed sanitized
   assert.deepEqual(
     JSON.parse(
       evaluate(failure.parameters.body, {
+        errorCode: 'GMAIL_CREDENTIALS_INVALID',
         error: { message: 'PRIVATE FAILURE DETAIL', stack: 'PRIVATE STACK' },
         message: { body: 'PRIVATE BODY' },
+      }),
+    ),
+    { tenantId, errorCode: 'GMAIL_CREDENTIALS_INVALID' },
+  );
+  assert.deepEqual(
+    JSON.parse(
+      evaluate(failure.parameters.body, {
+        error: { message: 'PRIVATE OAUTH FAILURE DETAIL', stack: 'PRIVATE STACK' },
       }),
     ),
     { tenantId, errorCode: 'GMAIL_EXECUTION_FAILED' },

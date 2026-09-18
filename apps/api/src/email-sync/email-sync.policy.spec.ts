@@ -7,11 +7,18 @@ import {
 import {
   canonicalAmount,
   currentPeriod,
+  EMAIL_RUN_TIMEOUT_MS,
+  EMAIL_SELECTION_TTL_MS,
   financialIdentity,
   gmailQuery,
   inFinancialPeriod,
   localDate,
 } from './email-sync.policy';
+
+void test('manual Gmail execution has a three-minute hard timeout', () => {
+  assert.equal(EMAIL_RUN_TIMEOUT_MS, 180_000);
+  assert.equal(EMAIL_SELECTION_TTL_MS, 1_800_000);
+});
 
 void test('current month uses Costa Rica local date across the UTC month boundary', () => {
   const now = new Date('2026-10-01T05:59:59Z');

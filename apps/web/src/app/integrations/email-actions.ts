@@ -207,7 +207,7 @@ export async function processEmailSelection(
   }
 }
 
-export async function cancelEmailPreview(id: string): Promise<EmailActionResult<EmailSyncRun>> {
+export async function cancelEmailRun(id: string): Promise<EmailActionResult<EmailSyncRun>> {
   if (!uuidSchema.safeParse(id).success) return invalid();
   try {
     return {

@@ -15,7 +15,7 @@ import type {
 } from '@tracker/contracts';
 import { CheckCircle2, Clock3, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import {
-  cancelEmailPreview,
+  cancelEmailRun,
   loadEmailRun,
   loadEmailRuns,
   previewEmailSource,
@@ -25,6 +25,7 @@ import { EmailFeedback } from '@/components/email-feedback';
 import { EmptyState } from '@/components/empty-state';
 import {
   classificationLabels,
+  emailRunErrorMessage,
   formatEmailDate,
   isRunning,
   monthLastDay,
@@ -141,6 +142,7 @@ export function EmailSyncPanel({
     Boolean(activeRun) ||
     Boolean(run && (isRunning(run.status) || run.status === 'awaiting_selection'));
   const choosing = run?.status === 'awaiting_selection';
+  const cancellable = Boolean(run && (isRunning(run.status) || choosing));
   const eligibleIds =
     run?.candidates.filter((candidate) => candidate.eligible).map((candidate) => candidate.id) ??
     [];
@@ -225,11 +227,11 @@ export function EmailSyncPanel({
   }
 
   function cancel() {
-    if (!run || !choosing) return;
+    if (!run || !cancellable) return;
     setError(null);
     startTransition(async () => {
       try {
-        const response = await cancelEmailPreview(run.id);
+        const response = await cancelEmailRun(run.id);
         if (response.ok) {
           receiveRun(response.data);
           setSelection([]);
@@ -410,9 +412,24 @@ export function EmailSyncPanel({
           ) : null}
           {run.status === 'failed' ? (
             <p className="email-feedback email-feedback-error" role="alert">
-              La ejecución falló. Los resultados guardados permanecen disponibles.{' '}
-              {run.lastErrorCode ? `Código: ${safeEmailCode(run.lastErrorCode)}.` : ''}
+              {emailRunErrorMessage(run.lastErrorCode)} Los resultados guardados permanecen
+              disponibles. {run.lastErrorCode ? `Código: ${safeEmailCode(run.lastErrorCode)}.` : ''}
             </p>
+          ) : null}
+          {cancellable ? (
+            <div className="email-cancel-action">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={pending}
+                onClick={cancel}
+              >
+                {choosing ? 'Descartar búsqueda' : 'Cancelar ejecución'}
+              </button>
+              {isRunning(run.status) ? (
+                <small>La ejecución se cerrará automáticamente al alcanzar 3 minutos.</small>
+              ) : null}
+            </div>
           ) : null}
           {choosing ? (
             <p className="email-selection-note">
@@ -502,14 +519,6 @@ export function EmailSyncPanel({
               <div className="email-actions">
                 <button
                   type="button"
-                  className="secondary-button"
-                  disabled={pending}
-                  onClick={cancel}
-                >
-                  Descartar búsqueda
-                </button>
-                <button
-                  type="button"
                   className="primary-button"
                   disabled={pending || selectedIds.length === 0 || !sourceEnabled}
                   onClick={processSelected}
@@ -539,7 +548,8 @@ export function EmailSyncPanel({
               <ul>
                 {run.result.errors.map((item, index) => (
                   <li key={`${item.code}-${index}`}>
-                    No se completó una operación: {safeEmailCode(item.code)}.
+                    No se completó una operación: {safeEmailCode(item.code)}.{' '}
+                    {emailRunErrorMessage(item.code)}
                   </li>
                 ))}
               </ul>

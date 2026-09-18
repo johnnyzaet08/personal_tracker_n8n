@@ -180,6 +180,47 @@ void test(
       assert.equal(completed.result.updated, 0);
       assert.equal(completed.result.ignoredOutsidePeriod, 1);
       assert.equal(completed.result.invalid, 1);
+
+      const cancelledWhilePending = await service.preview(
+        tenantId,
+        source.id,
+        { schemaVersion: 1, period: 'current_month' },
+        randomUUID(),
+      );
+      assert.equal(cancelledWhilePending.status, 'pending');
+      assert.equal((await service.cancel(tenantId, cancelledWhilePending.id)).status, 'cancelled');
+      await assert.rejects(service.progress(tenantId, cancelledWhilePending.id, 'fetching'));
+
+      const timedOut = await service.preview(
+        tenantId,
+        source.id,
+        { schemaVersion: 1, period: 'current_month' },
+        randomUUID(),
+      );
+      await db.emailSyncRun.update({
+        where: { id: timedOut.id },
+        data: { expiresAt: new Date(Date.now() - 1) },
+      });
+      const expired = await service.run(tenantId, timedOut.id);
+      assert.equal(expired.status, 'failed');
+      assert.equal(expired.lastErrorCode, 'RUN_TIMEOUT');
+
+      const credentialFailure = await service.preview(
+        tenantId,
+        source.id,
+        { schemaVersion: 1, period: 'current_month' },
+        randomUUID(),
+      );
+      const credentialResult = await service.complete(
+        tenantId,
+        credentialFailure.id,
+        'GMAIL_CREDENTIALS_INVALID',
+      );
+      assert.equal(credentialResult.status, 'failed');
+      assert.equal(credentialResult.lastErrorCode, 'GMAIL_CREDENTIALS_INVALID');
+      assert.equal(credentialResult.result.errors[0]?.code, 'GMAIL_CREDENTIALS_INVALID');
+      assert.ok(!JSON.stringify(credentialResult).includes('PRIVATE'));
+
       assert.equal(
         ((await service.automatic(tenantId, first)) as { classification: string }).classification,
         'already_processed',
