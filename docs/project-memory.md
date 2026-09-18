@@ -74,6 +74,7 @@ Versioned JSONs remain inactive and contain only `GMAIL_OAUTH_CREDENTIAL_REQUIRE
 - ADR-005 locates sources/runs/previews in core before additive migrations. No EAV extension.
 - The API owns one MIME parser and bank-template adapter, shared by automatic/manual paths. Finance receives a connector-independent candidate.
 - Dashboard configuration, current-month/exact-date preview, explicit selection, polling, history and counters are implemented.
+- Manual Gmail runs can be cancelled from every active state. External execution phases have a hard 180-second API and n8n timeout; awaiting user selection retains a separate 30-minute TTL. Provider failures are reduced to a closed set of sanitized actionable codes (ADR-006).
 - Exact-date mode constrains the Gmail query to that Costa Rica calendar day before applying the ten-message cap.
 - Message ID, canonical financial SHA-256 and tenant financial identity prevent duplicates. Conflicts retain a safe proposal in review queue; no financial fields or manual corrections are overwritten.
 - Gmail ingestion and manual recurring payments share a tenant advisory lock and recurring-obligation match policy. A recurring reserve is atomically replaced by one canonical `recurring_payment`; concurrent paths cannot double-book it.

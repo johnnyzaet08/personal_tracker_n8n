@@ -1490,6 +1490,16 @@ dd {
   color: var(--muted);
   font-size: 12px;
 }
+.email-cancel-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+.email-cancel-action small {
+  color: var(--muted);
+  font-size: 11px;
+}
 .email-results {
   margin-top: 20px;
   padding-top: 20px;

@@ -153,7 +153,7 @@ export class EmailSyncController {
 
   @Post('email-sync-runs/:id/cancel')
   @ApiOperation({
-    summary: 'Discard a preview awaiting selection and release the source synchronization lock',
+    summary: 'Cancel an active synchronization and release the source synchronization lock',
   })
   @ApiBody({ schema: z.toJSONSchema(cancellationBody) as never })
   cancel(

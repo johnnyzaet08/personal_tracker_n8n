@@ -289,3 +289,25 @@ con el mismo cliente. La política de uso del navegador exige que el usuario
 complete un cambio de credencial de autenticación. No necesita compartir client
 ID, client secret ni tokens. Después se repetirá una lectura acotada e idempotente
 para cerrar ese requisito y actualizar la evidencia del scope.
+
+## 16. Control de ejecución y diagnóstico de fallos
+
+El 2026-09-17 se añadió un límite duro de 180 segundos a los workflows manuales
+02 y 03 y al estado durable de sus runs en la API. El dashboard permite cancelar
+un run durante `pending`, `fetching`, `processing` o `awaiting_selection`. La
+selección conserva un TTL independiente de treinta minutos porque no mantiene
+una operación externa en curso.
+
+Las respuestas Gmail 401/403, 429 y 5xx se reportan mediante códigos sanitizados
+distintos; la API usa una allowlist y no persiste detalles devueltos por OAuth o
+el proveedor. `RUN_TIMEOUT` orienta a revisar la credencial Gmail y la conexión
+de n8n cuando no hubo una respuesta clasificable. Los callbacks tardíos no pueden
+cambiar un run terminal. ADR-006 registra la decisión y sus límites.
+
+La validación del mismo día reconstruyó e importó el stack, confirmó conectividad
+n8n → API → PostgreSQL y ejecutó 16 tests de parser/política, 11 de workflows y
+dos escenarios integrales sobre una base PostgreSQL descartable. La base temporal
+se eliminó al terminar. Una búsqueda real llegó a selección con diez candidatos;
+el botón estuvo visible durante la ejecución, la cancelación quedó terminal y una
+actualización posterior no la reabrió. El preview cancelado no procesó mensajes ni
+creó movimientos financieros.

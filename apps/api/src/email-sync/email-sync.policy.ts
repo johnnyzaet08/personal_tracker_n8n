@@ -3,6 +3,9 @@ import type { EmailSyncRunResult, FinancialTransactionCandidate } from '@tracker
 
 export const EMAIL_TIMEZONE = 'America/Costa_Rica' as const;
 export const ACTIVE_RUN_STATES = ['pending', 'fetching', 'awaiting_selection', 'processing'];
+export const EXECUTING_RUN_STATES = ['pending', 'fetching', 'processing'];
+export const EMAIL_RUN_TIMEOUT_MS = 3 * 60_000;
+export const EMAIL_SELECTION_TTL_MS = 30 * 60_000;
 export const EMAIL_ADAPTERS = [
   { key: 'bank-purchase-html-v1', displayName: 'Bank purchase HTML', version: '1.0.0' },
 ];

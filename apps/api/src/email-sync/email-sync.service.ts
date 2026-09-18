@@ -32,7 +32,10 @@ import {
 import {
   ACTIVE_RUN_STATES,
   EMAIL_ADAPTERS,
+  EMAIL_RUN_TIMEOUT_MS,
+  EMAIL_SELECTION_TTL_MS,
   EMAIL_TIMEZONE,
+  EXECUTING_RUN_STATES,
   canonicalAmount,
   canonicalText,
   currentPeriod,
@@ -50,6 +53,29 @@ type CandidateRow = Prisma.EmailSyncCandidateGetPayload<Record<string, never>>;
 type ParsedMessage = ReturnType<typeof parseGmailMessage>;
 type Database = Prisma.TransactionClient;
 type Page = { page: number; pageSize: number };
+
+const RUN_FAILURES = {
+  GMAIL_CREDENTIALS_INVALID: {
+    code: 'GMAIL_CREDENTIALS_INVALID',
+    message: 'Gmail rejected the configured credential; reconnect the Gmail integration',
+  },
+  GMAIL_RATE_LIMITED: {
+    code: 'GMAIL_RATE_LIMITED',
+    message: 'Gmail temporarily limited requests; retry after a short wait',
+  },
+  GMAIL_SERVICE_UNAVAILABLE: {
+    code: 'GMAIL_SERVICE_UNAVAILABLE',
+    message: 'Gmail was temporarily unavailable',
+  },
+  GMAIL_REQUEST_FAILED: {
+    code: 'GMAIL_REQUEST_FAILED',
+    message: 'Gmail rejected the requested operation',
+  },
+  GMAIL_EXECUTION_FAILED: {
+    code: 'GMAIL_EXECUTION_FAILED',
+    message: 'Gmail could not finish the requested operation',
+  },
+} as const;
 
 function problem(code: string, message: string): BadRequestException {
   return new BadRequestException({ code, message });
@@ -258,7 +284,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
           exactDate: period.exactDate,
           status: 'pending',
           result: json(emptyRunResult()),
-          expiresAt: new Date(Date.now() + 15 * 60_000),
+          expiresAt: new Date(Date.now() + EMAIL_RUN_TIMEOUT_MS),
         },
       });
     } catch (error) {
@@ -379,7 +405,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
           status: 'processing',
           result: json(result),
           lastErrorCode: null,
-          expiresAt: new Date(Date.now() + 15 * 60_000),
+          expiresAt: new Date(Date.now() + EMAIL_RUN_TIMEOUT_MS),
         },
       });
     });
@@ -392,11 +418,11 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.client.$transaction(async (tx) => {
       await this.lockTenant(tx, tenantId);
       const changed = await tx.emailSyncRun.updateMany({
-        where: { tenantId, id, status: 'awaiting_selection' },
-        data: { status: 'cancelled', completedAt: new Date() },
+        where: { tenantId, id, status: { in: ACTIVE_RUN_STATES } },
+        data: { status: 'cancelled', lastErrorCode: null, completedAt: new Date() },
       });
       if (!changed.count)
-        throw problem('RUN_NOT_CANCELLABLE', 'Only a preview awaiting selection can be cancelled');
+        throw problem('RUN_NOT_CANCELLABLE', 'Only an active synchronization can be cancelled');
     });
     return this.run(tenantId, id);
   }
@@ -534,7 +560,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
           data: {
             status: 'awaiting_selection',
             result: json(this.resultFor(rows)),
-            expiresAt: new Date(Date.now() + 30 * 60_000),
+            expiresAt: new Date(Date.now() + EMAIL_SELECTION_TTL_MS),
           },
         });
       },
@@ -659,13 +685,17 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
       const processed = await tx.emailSyncCandidate.count({
         where: { tenantId, runId: id, selected: true, processingResult: { not: Prisma.DbNull } },
       });
-      if (errorCode)
+      if (errorCode) {
+        const failure =
+          RUN_FAILURES[errorCode as keyof typeof RUN_FAILURES] ??
+          RUN_FAILURES.GMAIL_EXECUTION_FAILED;
         result.errors = [
           {
-            code: 'GMAIL_EXECUTION_FAILED',
-            message: 'Gmail could not finish the requested operation',
+            code: failure.code,
+            message: failure.message,
           },
         ];
+      }
       const unfinished = result.selected > processed;
       if (unfinished && !errorCode)
         result.errors = [
@@ -1049,8 +1079,15 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
       );
   }
   private ensureCurrentRun(run: Run) {
-    if (run.periodMonth !== localDate().slice(0, 7) || run.expiresAt.getTime() <= Date.now())
-      throw problem('RUN_EXPIRED', 'Start a new preview for the current month');
+    if (run.periodMonth !== localDate().slice(0, 7))
+      throw problem('RUN_PERIOD_EXPIRED', 'Start a new synchronization for the current month');
+    if (run.expiresAt.getTime() <= Date.now())
+      throw problem(
+        run.status === 'awaiting_selection' ? 'PREVIEW_EXPIRED' : 'RUN_TIMEOUT',
+        run.status === 'awaiting_selection'
+          ? 'The preview expired before a selection was submitted'
+          : 'The synchronization exceeded the three-minute execution limit',
+      );
   }
   private async validateConfiguration(tenantId: string, input: EmailSourceConfigurationInput) {
     if (!EMAIL_ADAPTERS.some((adapter) => adapter.key === input.adapterKey))
@@ -1125,9 +1162,12 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
   private async expireRuns(tenantId?: string, sourceId?: string) {
-    const where = {
+    const scope = {
       ...(tenantId ? { tenantId } : {}),
       ...(sourceId ? { sourceId } : {}),
+    };
+    const where = {
+      ...scope,
       status: { in: ACTIVE_RUN_STATES },
       OR: [{ expiresAt: { lte: new Date() } }, { periodMonth: { not: localDate().slice(0, 7) } }],
     };
@@ -1141,8 +1181,31 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.client.$transaction(async (tx) => {
         await this.lockTenant(tx, tenant.tenantId);
         await tx.emailSyncRun.updateMany({
-          where: { ...where, tenantId: tenant.tenantId },
-          data: { status: 'failed', lastErrorCode: 'RUN_EXPIRED', completedAt: new Date() },
+          where: {
+            ...scope,
+            tenantId: tenant.tenantId,
+            status: { in: ACTIVE_RUN_STATES },
+            periodMonth: { not: localDate().slice(0, 7) },
+          },
+          data: { status: 'failed', lastErrorCode: 'RUN_PERIOD_EXPIRED', completedAt: new Date() },
+        });
+        await tx.emailSyncRun.updateMany({
+          where: {
+            ...scope,
+            tenantId: tenant.tenantId,
+            status: { in: EXECUTING_RUN_STATES },
+            expiresAt: { lte: new Date() },
+          },
+          data: { status: 'failed', lastErrorCode: 'RUN_TIMEOUT', completedAt: new Date() },
+        });
+        await tx.emailSyncRun.updateMany({
+          where: {
+            ...scope,
+            tenantId: tenant.tenantId,
+            status: 'awaiting_selection',
+            expiresAt: { lte: new Date() },
+          },
+          data: { status: 'failed', lastErrorCode: 'PREVIEW_EXPIRED', completedAt: new Date() },
         });
       });
   }
