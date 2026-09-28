@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 type Planning = {
   period: string;
   currency: string;
+  monthlyIncome: string;
   budget: BudgetSummary | null;
   categories: CategoryRecord[];
 };
@@ -57,7 +58,7 @@ export default async function CategoriesPage({
     <>
       <PageHeader
         title="Plan mensual"
-        description="Presupuesto, categorías y consumo planificado para un mes y moneda."
+        description="Distribución porcentual, categorías y consumo del mes."
         actions={
           <form className="period-selector">
             <input name="period" type="month" defaultValue={period} />
@@ -75,24 +76,14 @@ export default async function CategoriesPage({
           <div>
             <h2>Presupuesto de {period}</h2>
             <p>
-              Los cuatro grupos provienen del template. Los porcentajes son editables y deben sumar
-              100%.
+              Los ingresos del mes suman {money(planning.monthlyIncome, currency)}. Configura cómo
+              distribuirlos; los porcentajes deben sumar 100%.
             </p>
           </div>
         </div>
         <form action={saveBudget} className="budget-form">
           <input type="hidden" name="period" value={period} />
           <input type="hidden" name="currency" value={currency} />
-          <label>
-            Ingreso base
-            <input
-              name="incomeBase"
-              inputMode="decimal"
-              defaultValue={planning.budget?.incomeBase ?? ''}
-              placeholder="0.00"
-              required
-            />
-          </label>
           {groups.map(([key, label]) => (
             <label key={key}>
               {label} %

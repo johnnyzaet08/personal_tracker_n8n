@@ -18,7 +18,6 @@ export async function saveBudget(form: FormData): Promise<void> {
   await apiWrite('/api/v1/monthly-budgets', 'POST', {
     period: required(form, 'period'),
     currency: required(form, 'currency').toUpperCase(),
-    incomeBase: required(form, 'incomeBase'),
     allocations: {
       savings: Number(required(form, 'savings')),
       needs: Number(required(form, 'needs')),
