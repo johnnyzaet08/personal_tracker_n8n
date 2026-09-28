@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { TrackerRequest } from '../common/request-context';
 import { FinanceService } from './finance.service';
@@ -114,6 +114,11 @@ export class FinanceController {
     @Body(new ZodValidationPipe(recurringPaymentUpdateSchema)) body: RecurringPaymentUpdate,
   ) {
     return this.finance.updateRecurring(request.tenantId, id, body);
+  }
+
+  @Delete('recurring-payments/:id')
+  deleteRecurring(@Req() request: TrackerRequest, @Param('id') id: string) {
+    return this.finance.deleteRecurring(request.tenantId, id);
   }
 
   @Post('recurring-obligations/materialize')

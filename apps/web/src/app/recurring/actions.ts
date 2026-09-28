@@ -58,6 +58,25 @@ export async function updateRecurring(form: FormData): Promise<void> {
   );
 }
 
+export async function deleteRecurring(form: FormData): Promise<void> {
+  const id = required(form, 'id');
+  const result = await apiWrite<{ historyPreserved: boolean }>(
+    `/api/v1/recurring-payments/${id}`,
+    'DELETE',
+    {},
+  );
+  revalidatePath('/recurring');
+  revalidatePath('/categories');
+  revalidatePath('/');
+  const params = new URLSearchParams({
+    period: required(form, 'period'),
+    currency: required(form, 'filterCurrency'),
+    removed: '1',
+    history: result.historyPreserved ? 'preserved' : 'none',
+  });
+  redirect(`/recurring?${params.toString()}`);
+}
+
 export async function createCategory(form: FormData): Promise<void> {
   await apiWrite('/api/v1/categories', 'POST', {
     name: required(form, 'categoryName'),
