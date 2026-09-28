@@ -330,7 +330,7 @@ export class FinanceService {
   }
 
   async recurring(tenantId: string, query: ListQueryDto): Promise<PaginatedResponse<object>> {
-    const where = { tenantId };
+    const where = { tenantId, status: { not: 'ended' as const } };
     const [data, total] = await this.prisma.client.$transaction([
       this.prisma.client.recurringPayment.findMany({
         where,
@@ -435,6 +435,26 @@ export class FinanceService {
         },
         include: { category: true, account: true, merchant: true },
       });
+    });
+  }
+
+  async deleteRecurring(tenantId: string, id: string): Promise<{ historyPreserved: boolean }> {
+    return this.prisma.client.$transaction(async (tx) => {
+      await this.lockTenant(tx, tenantId);
+      const current = await tx.recurringPayment.findFirst({ where: { id, tenantId } });
+      if (!current) throw new NotFoundException('Recurring payment not found');
+      const obligationCount = await tx.recurringObligation.count({
+        where: { tenantId, recurringPaymentId: id },
+      });
+      if (obligationCount > 0) {
+        await tx.recurringPayment.update({
+          where: { id },
+          data: { status: 'ended', nextExpectedAt: null, pausedAt: new Date() },
+        });
+        return { historyPreserved: true };
+      }
+      await tx.recurringPayment.delete({ where: { id } });
+      return { historyPreserved: false };
     });
   }
 

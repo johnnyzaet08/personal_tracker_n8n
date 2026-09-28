@@ -185,6 +185,67 @@ void test('recurring edits persist scheduling fields, clear references and pause
   assert.ok(resumedNextExpectedAt >= new Date());
 });
 
+void test('recurring deletion permanently removes patterns without obligations', async () => {
+  let deleted: { where: { id: string } } | undefined;
+  const database = {
+    $queryRaw: () => Promise.resolve([{ locked: 1 }]),
+    recurringPayment: {
+      findFirst: ({ where }: { where: { id: string; tenantId: string } }) =>
+        Promise.resolve(where.tenantId === 'tenant-1' ? { id: where.id } : null),
+      delete: (input: typeof deleted) => {
+        deleted = input;
+        return Promise.resolve({ id: input?.where.id });
+      },
+    },
+    recurringObligation: { count: () => Promise.resolve(0) },
+  };
+  const service = new FinanceService({
+    client: {
+      $transaction: (callback: (tx: typeof database) => Promise<unknown>) => callback(database),
+    },
+  } as unknown as PrismaService);
+
+  assert.deepEqual(await service.deleteRecurring('tenant-1', 'recurring-1'), {
+    historyPreserved: false,
+  });
+  assert.deepEqual(deleted, { where: { id: 'recurring-1' } });
+});
+
+void test('recurring deletion ends patterns with obligations and preserves their history', async () => {
+  let updated: { where: { id: string }; data: Record<string, unknown> } | undefined;
+  let deleted = false;
+  const database = {
+    $queryRaw: () => Promise.resolve([{ locked: 1 }]),
+    recurringPayment: {
+      findFirst: ({ where }: { where: { id: string; tenantId: string } }) =>
+        Promise.resolve(where.tenantId === 'tenant-1' ? { id: where.id } : null),
+      update: (input: typeof updated) => {
+        updated = input;
+        return Promise.resolve(input);
+      },
+      delete: () => {
+        deleted = true;
+        return Promise.resolve({});
+      },
+    },
+    recurringObligation: { count: () => Promise.resolve(1) },
+  };
+  const service = new FinanceService({
+    client: {
+      $transaction: (callback: (tx: typeof database) => Promise<unknown>) => callback(database),
+    },
+  } as unknown as PrismaService);
+
+  assert.deepEqual(await service.deleteRecurring('tenant-1', 'recurring-1'), {
+    historyPreserved: true,
+  });
+  assert.equal(updated?.where.id, 'recurring-1');
+  assert.equal(updated?.data.status, 'ended');
+  assert.equal(updated?.data.nextExpectedAt, null);
+  assert.equal(updated?.data.pausedAt instanceof Date, true);
+  assert.equal(deleted, false);
+});
+
 void test('manual obligation due dates are marked as protected from month synchronization', async () => {
   let updateData: Record<string, unknown> | undefined;
   const database = {

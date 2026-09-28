@@ -24,7 +24,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 export async function apiRequest<T>(
   path: string,
-  method: 'GET' | 'POST' | 'PATCH' = 'GET',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
 ): Promise<T> {
   const tenantId = process.env.LOCAL_TENANT_ID;
@@ -62,7 +62,7 @@ export async function apiRequest<T>(
 
 export async function apiWrite<T>(
   path: string,
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'DELETE',
   body: unknown,
 ): Promise<T> {
   const tenantId = process.env.LOCAL_TENANT_ID;

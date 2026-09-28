@@ -7,6 +7,7 @@ import type { CategoryRecord, RecurringRecord } from '@/lib/types';
 import {
   createCategory,
   createRecurring,
+  deleteRecurring,
   materializeCurrent,
   payObligation,
   updateRecurring,
@@ -37,6 +38,8 @@ export default async function RecurringPage({
     updated?: string;
     unchanged?: string;
     skipped?: string;
+    removed?: string;
+    history?: string;
   }>;
 }) {
   const search = await searchParams;
@@ -153,6 +156,13 @@ export default async function RecurringPage({
             {search.skipped ?? '0'} obligaciones pagadas o conciliadas quedaron protegidas.
           </p>
         )}
+        {search.removed === '1' && (
+          <p className="sync-result" role="status">
+            {search.history === 'preserved'
+              ? 'El pago recurrente se eliminó de las opciones futuras. Las obligaciones ya registradas se conservaron en sus meses.'
+              : 'El pago recurrente se eliminó.'}
+          </p>
+        )}
         {obligations.length === 0 ? (
           <EmptyState
             title="Aún no hay obligaciones en este mes"
@@ -230,7 +240,6 @@ export default async function RecurringPage({
                     <strong>
                       {item.expectedAmount ?? '—'} {item.currency}
                     </strong>
-                    <small>Editar</small>
                   </span>
                 </summary>
                 <div className="recurring-reference-note">
@@ -303,6 +312,13 @@ export default async function RecurringPage({
                     </select>
                   </label>
                   <button className="primary-button">Guardar cambios</button>
+                </form>
+                <form action={deleteRecurring} className="recurring-delete-form">
+                  <input type="hidden" name="id" value={item.id} />
+                  <input type="hidden" name="period" value={period} />
+                  <input type="hidden" name="filterCurrency" value={currency} />
+                  <p>Las obligaciones ya registradas se conservarán en sus meses.</p>
+                  <button className="recurring-delete-button">Eliminar pago recurrente</button>
                 </form>
               </details>
             ))}
