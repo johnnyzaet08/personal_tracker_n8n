@@ -108,7 +108,6 @@ export const categoryAssignmentSchema = z.object({ categoryId: uuidSchema });
 export const monthlyBudgetInputSchema = z.object({
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/u),
   currency: currencySchema,
-  incomeBase: decimalStringSchema,
   allocations: z
     .object({
       savings: z.number().min(0).max(100),
@@ -121,6 +120,22 @@ export const monthlyBudgetInputSchema = z.object({
       'Allocations must total 100%',
     ),
 });
+
+export const monthlyIncomeInputSchema = z
+  .object({
+    period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/u),
+    currency: currencySchema,
+    occurredOn: z.iso.date(),
+    description: z.string().trim().min(1).max(255),
+    amount: decimalStringSchema.refine(
+      (value) => Number(value) > 0,
+      'Amount must be greater than zero',
+    ),
+  })
+  .refine((value) => value.occurredOn.startsWith(`${value.period}-`), {
+    message: 'Income date must belong to the selected month',
+    path: ['occurredOn'],
+  });
 
 export interface DashboardSummary {
   period: { from: string; to: string };
@@ -151,8 +166,25 @@ export interface BudgetSummary {
   id: string;
   period: string;
   currency: string;
-  incomeBase: string;
+  monthlyIncome: string;
   groups: BudgetGroupSummary[];
+}
+
+export interface MonthlyIncomeRecord {
+  id: string;
+  period: string;
+  currency: string;
+  amount: string;
+  description: string;
+  occurredOn: string;
+  createdAt: string;
+}
+
+export interface MonthlyIncomeSummary {
+  period: string;
+  currency: string;
+  total: string;
+  records: MonthlyIncomeRecord[];
 }
 
 export type FinancialTransactionCandidate = z.infer<typeof financialTransactionCandidateSchema>;
@@ -165,3 +197,4 @@ export type CategoryInput = z.infer<typeof categoryInputSchema>;
 export type CategoryUpdate = z.infer<typeof categoryUpdateSchema>;
 export type CategoryAssignment = z.infer<typeof categoryAssignmentSchema>;
 export type MonthlyBudgetInput = z.infer<typeof monthlyBudgetInputSchema>;
+export type MonthlyIncomeInput = z.infer<typeof monthlyIncomeInputSchema>;

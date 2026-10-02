@@ -11,6 +11,8 @@ import type {
   BudgetSummary,
   DashboardSummary,
   MonthlyBudgetInput,
+  MonthlyIncomeInput,
+  MonthlyIncomeSummary,
   ObligationPayment,
   PaginatedResponse,
   RecurringPaymentInput,
@@ -176,9 +178,14 @@ export class FinanceService {
       }),
       this.budgetSummary(tenantId, period, currency),
     ]);
+    const monthlyIncome = await this.prisma.client.monthlyIncome.aggregate({
+      where: { tenantId, period, currency },
+      _sum: { amount: true },
+    });
     return {
       period,
       currency,
+      monthlyIncome: (monthlyIncome._sum.amount ?? new Prisma.Decimal(0)).toFixed(4),
       budget,
       categories: categories.map((category) => ({
         ...category,
@@ -201,9 +208,8 @@ export class FinanceService {
           tenantId,
           period: input.period,
           currency: input.currency,
-          incomeBase: new Prisma.Decimal(input.incomeBase),
         },
-        update: { incomeBase: new Prisma.Decimal(input.incomeBase), status: 'active' },
+        update: { status: 'active' },
       });
       for (const [groupKey, percentage] of Object.entries(input.allocations)) {
         await tx.budgetAllocation.upsert({
@@ -214,6 +220,55 @@ export class FinanceService {
       }
     });
     return (await this.budgetSummary(tenantId, input.period, input.currency))!;
+  }
+
+  async monthlyIncomes(
+    tenantId: string,
+    period: string,
+    currency: string,
+  ): Promise<MonthlyIncomeSummary> {
+    this.validatePeriodCurrency(period, currency);
+    const records = await this.prisma.client.monthlyIncome.findMany({
+      where: { tenantId, period, currency },
+      orderBy: [{ occurredOn: 'desc' }, { createdAt: 'desc' }],
+    });
+    const total = records.reduce((sum, record) => sum.add(record.amount), new Prisma.Decimal(0));
+    return {
+      period,
+      currency,
+      total: total.toFixed(4),
+      records: records.map((record) => ({
+        id: record.id,
+        period: record.period,
+        currency: record.currency,
+        amount: record.amount.toFixed(4),
+        description: record.description,
+        occurredOn: record.occurredOn.toISOString().slice(0, 10),
+        createdAt: record.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  async createMonthlyIncome(tenantId: string, input: MonthlyIncomeInput) {
+    const record = await this.prisma.client.monthlyIncome.create({
+      data: {
+        tenantId,
+        period: input.period,
+        currency: input.currency,
+        amount: new Prisma.Decimal(input.amount),
+        description: input.description,
+        occurredOn: this.dateAtCostaRica(input.occurredOn),
+      },
+    });
+    return {
+      id: record.id,
+      period: record.period,
+      currency: record.currency,
+      amount: record.amount.toFixed(4),
+      description: record.description,
+      occurredOn: record.occurredOn.toISOString().slice(0, 10),
+      createdAt: record.createdAt.toISOString(),
+    };
   }
 
   async assignCategory(
@@ -681,6 +736,12 @@ export class FinanceService {
     period: string,
     currency: string,
   ): Promise<BudgetSummary | null> {
+    this.validatePeriodCurrency(period, currency);
+    const income = await this.prisma.client.monthlyIncome.aggregate({
+      where: { tenantId, period, currency },
+      _sum: { amount: true },
+    });
+    const monthlyIncome = income._sum.amount ?? new Prisma.Decimal(0);
     const budget = await this.prisma.client.monthlyBudget.findUnique({
       where: { tenantId_period_currency: { tenantId, period, currency } },
       include: { allocations: true },
@@ -720,12 +781,12 @@ export class FinanceService {
       id: budget.id,
       period,
       currency,
-      incomeBase: budget.incomeBase.toFixed(4),
+      monthlyIncome: monthlyIncome.toFixed(4),
       groups: (Object.keys(labels) as Array<keyof typeof labels>).map((key) => {
         const percentage =
           budget.allocations.find((item) => item.groupKey === key)?.percentage ??
           new Prisma.Decimal(0);
-        const assigned = budget.incomeBase.mul(percentage).div(100);
+        const assigned = monthlyIncome.mul(percentage).div(100);
         const used = transactions
           .filter((item) =>
             item.transactionType === 'recurring_payment'
@@ -747,6 +808,11 @@ export class FinanceService {
         };
       }),
     };
+  }
+
+  private validatePeriodCurrency(period: string, currency: string): void {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(period) || !/^[A-Z]{3}$/u.test(currency))
+      throw new BadRequestException('A valid period and currency are required');
   }
 
   private periodStart(period: string): Date {

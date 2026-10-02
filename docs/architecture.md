@@ -79,3 +79,12 @@ explícita se valida por tenant/run y los mensajes se recuperan otra vez. Ambos
 caminos usan `email-ingestion/mime-parser.ts` y `bank-purchase-adapter.ts` en la API.
 `core.email_sources` contiene configuración explícita con FKs de tenant compuestos.
 Finance recibe un candidato independiente de la representación Gmail.
+
+## Ingresos manuales y presupuesto
+
+La web registra ingresos mensuales en `/api/v1/monthly-incomes`; cada registro se
+valida contra su mes y moneda y queda asociado directamente al tenant. Los
+porcentajes del presupuesto se guardan aparte en `monthly_budgets` y
+`budget_allocations`. Finance suma los ingresos registrados del mes para calcular
+los montos asignados, usados y disponibles. Estos registros no crean transacciones
+ni alteran el dashboard basado en movimientos bancarios. Véase ADR 0005.

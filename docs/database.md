@@ -30,8 +30,9 @@ Se revoca acceso `PUBLIC` a ambas bases. PostgreSQL no publica puerto al host. `
 | finance    | transactions          | movimientos en `NUMERIC(20,4)`             |
 | finance    | recurring_payments    | patrones de pagos recurrentes              |
 | finance    | recurring_obligations | compromisos mensuales y pagos efectivos    |
-| finance    | monthly_budgets       | ingreso base planificado por mes y moneda  |
+| finance    | monthly_budgets       | período y moneda del presupuesto mensual   |
 | finance    | budget_allocations    | porcentajes históricos por grupo           |
+| finance    | monthly_incomes       | ingresos manuales por mes, tenant y moneda |
 | automation | classifications       | resultados versionados                     |
 | automation | action_runs           | acciones con idempotency key por tenant    |
 | automation | review_queue          | decisiones humanas y evidencia propuesta   |

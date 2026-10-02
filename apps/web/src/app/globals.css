@@ -578,18 +578,48 @@ td small {
 }
 .budget-form {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
   gap: 12px;
   align-items: end;
 }
 .budget-form label,
-.category-create label {
+.category-create label,
+.income-entry-form label {
   display: grid;
   gap: 6px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
+}
+.income-entry-form {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(220px, 1.5fr) minmax(140px, 0.8fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 0 22px 20px;
+}
+.income-entry-form input {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.income-entry-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.income-total {
+  color: var(--forest-bright);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
 }
 .budget-grid {
   display: grid;
@@ -934,6 +964,7 @@ td small {
     width: 100%;
   }
   .budget-form,
+  .income-entry-form,
   .budget-grid,
   .category-create,
   .donut-grid,

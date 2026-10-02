@@ -10,10 +10,12 @@ import {
   categoryUpdateSchema,
   categoryAssignmentSchema,
   monthlyBudgetInputSchema,
+  monthlyIncomeInputSchema,
   type CategoryAssignment,
   type CategoryInput,
   type CategoryUpdate,
   type MonthlyBudgetInput,
+  type MonthlyIncomeInput,
   obligationUpdateSchema,
   recurringPaymentInputSchema,
   recurringPaymentUpdateSchema,
@@ -78,6 +80,23 @@ export class FinanceController {
     @Body(new ZodValidationPipe(monthlyBudgetInputSchema)) body: MonthlyBudgetInput,
   ) {
     return this.finance.saveBudget(request.tenantId, body);
+  }
+
+  @Get('monthly-incomes')
+  monthlyIncomes(
+    @Req() request: TrackerRequest,
+    @Query('period') period: string,
+    @Query('currency') currency: string,
+  ) {
+    return this.finance.monthlyIncomes(request.tenantId, period, currency?.toUpperCase());
+  }
+
+  @Post('monthly-incomes')
+  createMonthlyIncome(
+    @Req() request: TrackerRequest,
+    @Body(new ZodValidationPipe(monthlyIncomeInputSchema)) body: MonthlyIncomeInput,
+  ) {
+    return this.finance.createMonthlyIncome(request.tenantId, body);
   }
 
   @Patch('transactions/:id/category')
