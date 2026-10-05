@@ -56,9 +56,24 @@ export class FinanceService {
         merchant: { select: { displayName: true } },
       },
     });
-    const pendingReview = await this.prisma.client.reviewQueue.count({
-      where: { tenantId, status: 'pending' },
-    });
+    const [pendingAlerts, uncategorizedCount, monthlyIncome] = await Promise.all([
+      this.prisma.client.reviewQueue.count({ where: { tenantId, status: 'pending' } }),
+      this.prisma.client.transaction.count({
+        where: {
+          tenantId,
+          categoryId: null,
+          direction: 'debit',
+          currency,
+          status: 'posted',
+          occurredAt: { gte: from, lte: to },
+        },
+      }),
+      this.prisma.client.monthlyIncome.aggregate({
+        where: { tenantId, period: from.toISOString().slice(0, 7), currency },
+        _sum: { amount: true },
+      }),
+    ]);
+    const pendingReview = pendingAlerts + uncategorizedCount;
     const integrations = await this.prisma.client.integration.findMany({
       where: { tenantId },
       orderBy: { provider: 'asc' },
@@ -66,7 +81,7 @@ export class FinanceService {
     });
     const period = from.toISOString().slice(0, 7);
     let expenses = new Prisma.Decimal(0);
-    let income = new Prisma.Decimal(0);
+    const income = monthlyIncome._sum.amount ?? new Prisma.Decimal(0);
     const timelineMap = new Map<string, { debit: Prisma.Decimal; credit: Prisma.Decimal }>();
     const categoryMap = new Map<
       string,
@@ -78,7 +93,6 @@ export class FinanceService {
     >();
     for (const transaction of transactions) {
       if (transaction.direction === 'debit') expenses = expenses.add(transaction.amount);
-      if (transaction.direction === 'credit') income = income.add(transaction.amount);
       const day = transaction.occurredAt.toISOString().slice(0, 10);
       const daily = timelineMap.get(day) ?? {
         debit: new Prisma.Decimal(0),
@@ -764,7 +778,7 @@ export class FinanceService {
       }),
       this.prisma.client.recurringObligation.findMany({
         where: { tenantId, period, currency, paymentStatus: 'pending' },
-        select: { expectedAmount: true },
+        select: { expectedAmount: true, category: { select: { budgetGroup: true } } },
       }),
     ]);
     const labels = {
@@ -773,10 +787,6 @@ export class FinanceService {
       provisions: 'Provisiones',
       play: 'Monto de play',
     } as const;
-    const pendingTotal = pending.reduce(
-      (sum, item) => sum.add(item.expectedAmount),
-      new Prisma.Decimal(0),
-    );
     return {
       id: budget.id,
       period,
@@ -788,13 +798,16 @@ export class FinanceService {
           new Prisma.Decimal(0);
         const assigned = monthlyIncome.mul(percentage).div(100);
         const used = transactions
-          .filter((item) =>
-            item.transactionType === 'recurring_payment'
-              ? key === 'needs'
-              : item.category?.budgetGroup === key,
-          )
+          .filter((item) => {
+            const group =
+              item.category?.budgetGroup ??
+              (item.transactionType === 'recurring_payment' ? 'needs' : null);
+            return group === key;
+          })
           .reduce((sum, item) => sum.add(item.amount), new Prisma.Decimal(0));
-        const recurringPending = key === 'needs' ? pendingTotal : new Prisma.Decimal(0);
+        const recurringPending = pending
+          .filter((item) => (item.category?.budgetGroup ?? 'needs') === key)
+          .reduce((sum, item) => sum.add(item.expectedAmount), new Prisma.Decimal(0));
         const committed = used.add(recurringPending);
         return {
           key,

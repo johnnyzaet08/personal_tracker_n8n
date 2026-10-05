@@ -47,6 +47,8 @@ Update versions only through an explicit dependency task with compatibility rese
 - Core tenancy, users, memberships, integrations, and idempotent source events exist.
 - Finance accounts, merchants, categories, transactions, recurring payment patterns and obligations, monthly budgets and allocations, classification, action runs, review queue, and notifications exist.
 - Los ingresos mensuales manuales se registran por tenant, mes y moneda. El presupuesto conserva porcentajes; la API calcula montos asignados desde esos ingresos. Véase ADR 0005.
+- El ingreso mostrado en el dashboard usa la misma suma manual del mes que alimenta el presupuesto, sin sumar créditos de transacciones que podrían duplicar esos registros. Pendientes de revisión agrega alertas abiertas y gastos confirmados sin categoría visibles en Alertas y revisión.
+- Los pagos recurrentes y sus reservas pendientes se asignan al grupo de presupuesto de su categoría; sin categoría/grupo usan Gastos necesarios. Véase ADR 0006, que actualiza la regla histórica de ADR 0002.
 - Finance permite editar y eliminar patrones recurrentes. Eliminar un patrón sin obligaciones lo borra; si ya tiene obligaciones mensuales, lo marca como terminado y conserva esas filas históricas. La sincronización mensual crea faltantes y actualiza sólo obligaciones pendientes no conciliadas; nunca borra obligaciones existentes y preserva vencimientos manuales. La clasificación de débitos sin categoría vive en Alertas y revisión.
 - `habits` and `health` schemas are reserved but intentionally contain no domain tables.
 - The development seed creates one deterministic tenant, user, membership, and a Gmail integration while preserving an existing connection state. It creates no fake financial data.

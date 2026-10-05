@@ -491,6 +491,15 @@ void test(
           budgetGroup: 'needs',
         },
       });
+      const playCategory = await db.category.create({
+        data: {
+          tenantId,
+          name: 'Synthetic play',
+          slug: 'synthetic-play',
+          type: 'expense',
+          budgetGroup: 'play',
+        },
+      });
       const message = (id: string, merchant: string, amount: string, reference: string) => ({
         id,
         threadId: `thread-${id}`,
@@ -502,7 +511,7 @@ void test(
         },
         html: `<table><tr><td>Comercio:</td><td>${merchant}</td></tr><tr><td>Fecha:</td><td>${financialDate}</td></tr><tr><td>Tarjeta:</td><td>XXXXXXXX4242</td></tr><tr><td>Referencia:</td><td>${reference}</td></tr><tr><td>Tipo de transaccion:</td><td>Compra</td></tr><tr><td>Monto:</td><td>CRC ${amount}</td></tr></table>`,
       });
-      const obligation = async (name: string, amount: string) => {
+      const obligation = async (name: string, amount: string, expenseCategory = category) => {
         const recurring = await db.recurringPayment.create({
           data: {
             tenantId,
@@ -513,7 +522,7 @@ void test(
             frequency: 'monthly',
             startAt: new Date(`${month}-01T06:00:00Z`),
             dueDay: 3,
-            categoryId: category.id,
+            categoryId: expenseCategory.id,
           },
         });
         return db.recurringObligation.create({
@@ -523,7 +532,7 @@ void test(
             period: month,
             expectedAmount: new Prisma.Decimal(amount),
             currency: 'CRC',
-            categoryId: category.id,
+            categoryId: expenseCategory.id,
             dueAt: new Date(`${date}T06:00:00Z`),
           },
         });
@@ -591,6 +600,24 @@ void test(
         3,
       );
 
+      await db.transaction.update({
+        where: { id: imported.transactionId },
+        data: { categoryId: playCategory.id },
+      });
+      await obligation('PENDING PLAY SUBSCRIPTION', '20.00', playCategory);
+      await finance.createMonthlyIncome(tenantId, {
+        period: month,
+        currency: 'CRC',
+        occurredOn: date,
+        description: 'Synthetic monthly income',
+        amount: '1000.00',
+      });
+      await finance.saveBudget(tenantId, {
+        period: month,
+        currency: 'CRC',
+        allocations: { savings: 25, needs: 25, provisions: 25, play: 25 },
+      });
+
       for (const [currency, status, amount] of [
         ['USD', 'posted', '999.00'],
         ['CRC', 'pending_review', '888.00'],
@@ -623,9 +650,49 @@ void test(
           },
         });
       }
+      const unclassifiedEvent = await db.sourceEvent.create({
+        data: {
+          tenantId,
+          source: 'email_fixture',
+          externalId: randomUUID(),
+          eventType: 'synthetic.unclassified',
+          schemaVersion: 1,
+          occurredAt: new Date(`${date}T12:00:00-06:00`),
+          receivedAt: new Date(`${date}T12:00:00-06:00`),
+          payloadHash: randomUUID().replaceAll('-', '').padEnd(64, '0').slice(0, 64),
+          payload: {},
+        },
+      });
+      await db.transaction.create({
+        data: {
+          tenantId,
+          sourceEventId: unclassifiedEvent.id,
+          direction: 'debit',
+          transactionType: 'purchase',
+          amount: new Prisma.Decimal('20.00'),
+          currency: 'CRC',
+          description: 'SYNTHETIC UNCLASSIFIED EXPENSE',
+          occurredAt: new Date(`${date}T12:00:00-06:00`),
+          status: 'posted',
+        },
+      });
+      await db.reviewQueue.create({
+        data: {
+          tenantId,
+          sourceEventId: unclassifiedEvent.id,
+          reason: 'Synthetic review item',
+        },
+      });
       const summary = await finance.summary(tenantId, new TransactionQueryDto());
       assert.equal(summary.currency, 'CRC');
-      assert.equal(summary.expenses, '195.0000');
+      assert.equal(summary.expenses, '215.0000');
+      assert.equal(summary.income, '1000.0000');
+      assert.equal(summary.pendingReview, 2);
+      assert.equal(summary.budget?.groups.find((group) => group.key === 'play')?.used, '55.0000');
+      assert.equal(
+        summary.budget?.groups.find((group) => group.key === 'play')?.recurringPending,
+        '20.0000',
+      );
     } finally {
       email.onModuleDestroy();
       await prisma.onModuleDestroy();
