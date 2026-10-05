@@ -90,7 +90,11 @@ export default async function Home({
                 {metric.label}
               </div>
               <strong>{metric.value}</strong>
-              <span className="metric-note">Datos confirmados por la API</span>
+              <span className="metric-note">
+                {metric.label === 'Ingresos del período'
+                  ? 'Suma de registros en Ingresos'
+                  : 'Datos confirmados por la API'}
+              </span>
             </article>
           );
         })}
@@ -101,8 +105,8 @@ export default async function Home({
             <div>
               <h2>Uso por grupo presupuestario</h2>
               <p>
-                El círculo muestra lo comprometido y lo que queda antes del límite. Recurrentes
-                pendientes solo reservan en Gastos necesarios.
+                El círculo muestra lo comprometido y lo que queda antes del límite. Los recurrentes
+                se asignan al grupo de su categoría.
               </p>
             </div>
           </div>
