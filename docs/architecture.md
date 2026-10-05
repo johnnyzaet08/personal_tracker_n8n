@@ -87,7 +87,8 @@ valida contra su mes y moneda y queda asociado directamente al tenant. Los
 porcentajes del presupuesto se guardan aparte en `monthly_budgets` y
 `budget_allocations`. Finance suma los ingresos registrados del mes para calcular
 los montos asignados, usados y disponibles. El ingreso del dashboard usa esa misma
-suma y no la agrega a créditos de transacciones, para evitar duplicados. Véase ADR 0005.
+suma y no la agrega a créditos de transacciones, para evitar duplicados. Véanse ADR
+0005 y 0006.
 
 El contador de pendientes del dashboard combina alertas abiertas con gastos
 confirmados sin categoría del período y moneda seleccionados, en línea con las dos
