@@ -604,7 +604,11 @@ void test(
         where: { id: imported.transactionId },
         data: { categoryId: playCategory.id },
       });
-      await obligation('PENDING PLAY SUBSCRIPTION', '20.00', playCategory);
+      const pendingPlayObligation = await obligation(
+        'PENDING PLAY SUBSCRIPTION',
+        '20.00',
+        playCategory,
+      );
       await finance.createMonthlyIncome(tenantId, {
         period: month,
         currency: 'CRC',
@@ -685,13 +689,29 @@ void test(
       });
       const summary = await finance.summary(tenantId, new TransactionQueryDto());
       assert.equal(summary.currency, 'CRC');
-      assert.equal(summary.expenses, '215.0000');
+      assert.equal(summary.expenses, '235.0000');
       assert.equal(summary.income, '1000.0000');
+      assert.equal(summary.balance, '765.0000');
       assert.equal(summary.pendingReview, 2);
       assert.equal(summary.budget?.groups.find((group) => group.key === 'play')?.used, '55.0000');
       assert.equal(
         summary.budget?.groups.find((group) => group.key === 'play')?.recurringPending,
         '20.0000',
+      );
+      await finance.payObligation(tenantId, pendingPlayObligation.id, {
+        paidAt: date,
+        actualAmount: '20.00',
+      });
+      const settledSummary = await finance.summary(tenantId, new TransactionQueryDto());
+      assert.equal(settledSummary.expenses, summary.expenses);
+      assert.equal(settledSummary.balance, summary.balance);
+      assert.equal(
+        settledSummary.budget?.groups.find((group) => group.key === 'play')?.used,
+        '75.0000',
+      );
+      assert.equal(
+        settledSummary.budget?.groups.find((group) => group.key === 'play')?.recurringPending,
+        '0.0000',
       );
     } finally {
       email.onModuleDestroy();

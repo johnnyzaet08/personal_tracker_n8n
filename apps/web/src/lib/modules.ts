@@ -1,5 +1,6 @@
 import {
   BellRing,
+  ListChecks,
   CreditCard,
   FolderTree,
   LayoutDashboard,
@@ -30,7 +31,8 @@ export const dashboardModules: DashboardModule[] = [
   { id: 'categories', label: 'Plan mensual', href: '/categories', icon: FolderTree, enabled: true },
   { id: 'income', label: 'Ingresos', href: '/income', icon: CircleDollarSign, enabled: true },
   { id: 'recurring', label: 'Recurrentes', href: '/recurring', icon: Repeat2, enabled: true },
-  { id: 'review', label: 'Alertas y revisión', href: '/review', icon: BellRing, enabled: true },
+  { id: 'review', label: 'Revisión', href: '/review', icon: ListChecks, enabled: true },
+  { id: 'alerts', label: 'Alertas', href: '/alerts', icon: BellRing, enabled: true },
   { id: 'integrations', label: 'Integraciones', href: '/integrations', icon: Link2, enabled: true },
   { id: 'settings', label: 'Configuración', href: '/settings', icon: Settings, enabled: true },
 ];

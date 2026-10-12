@@ -45,19 +45,28 @@ export default async function Home({
     {
       label: 'Gastos del período',
       value: money(summary.expenses, currency),
+      note: 'Incluye pagos y recurrentes pendientes',
       icon: ArrowUpRight,
       tone: 'expense',
     },
     {
       label: 'Ingresos del período',
       value: money(summary.income, currency),
+      note: 'Suma de registros en Ingresos',
       icon: ArrowDownLeft,
       tone: 'income',
     },
-    { label: 'Balance', value: money(summary.balance, currency), icon: Scale, tone: 'balance' },
+    {
+      label: 'Balance',
+      value: money(summary.balance, currency),
+      note: 'Ingreso registrado menos gasto comprometido',
+      icon: Scale,
+      tone: 'balance',
+    },
     {
       label: 'Pendientes de revisión',
       value: String(summary.pendingReview),
+      note: 'Alertas y gastos sin categoría',
       icon: ShieldAlert,
       tone: 'review',
     },
@@ -90,11 +99,7 @@ export default async function Home({
                 {metric.label}
               </div>
               <strong>{metric.value}</strong>
-              <span className="metric-note">
-                {metric.label === 'Ingresos del período'
-                  ? 'Suma de registros en Ingresos'
-                  : 'Datos confirmados por la API'}
-              </span>
+              <span className="metric-note">{metric.note}</span>
             </article>
           );
         })}

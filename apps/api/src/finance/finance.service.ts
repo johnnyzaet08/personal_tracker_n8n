@@ -56,7 +56,8 @@ export class FinanceService {
         merchant: { select: { displayName: true } },
       },
     });
-    const [pendingAlerts, uncategorizedCount, monthlyIncome] = await Promise.all([
+    const period = from.toISOString().slice(0, 7);
+    const [pendingAlerts, uncategorizedCount, monthlyIncome, recurringPending] = await Promise.all([
       this.prisma.client.reviewQueue.count({ where: { tenantId, status: 'pending' } }),
       this.prisma.client.transaction.count({
         where: {
@@ -69,8 +70,12 @@ export class FinanceService {
         },
       }),
       this.prisma.client.monthlyIncome.aggregate({
-        where: { tenantId, period: from.toISOString().slice(0, 7), currency },
+        where: { tenantId, period, currency },
         _sum: { amount: true },
+      }),
+      this.prisma.client.recurringObligation.aggregate({
+        where: { tenantId, period, currency, paymentStatus: 'pending' },
+        _sum: { expectedAmount: true },
       }),
     ]);
     const pendingReview = pendingAlerts + uncategorizedCount;
@@ -79,8 +84,7 @@ export class FinanceService {
       orderBy: { provider: 'asc' },
       select: { provider: true, status: true, lastSyncAt: true },
     });
-    const period = from.toISOString().slice(0, 7);
-    let expenses = new Prisma.Decimal(0);
+    let expenses = recurringPending._sum.expectedAmount ?? new Prisma.Decimal(0);
     const income = monthlyIncome._sum.amount ?? new Prisma.Decimal(0);
     const timelineMap = new Map<string, { debit: Prisma.Decimal; credit: Prisma.Decimal }>();
     const categoryMap = new Map<

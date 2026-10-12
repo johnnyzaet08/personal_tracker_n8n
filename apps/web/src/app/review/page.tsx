@@ -1,10 +1,12 @@
-import type { BudgetSummary, PaginatedResponse } from '@tracker/contracts';
+import type { BudgetSummary } from '@tracker/contracts';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
-import { StatusPill } from '@/components/status-pill';
+import { EmailFeedback } from '@/components/email-feedback';
+import { EmailSyncWorkspace } from '@/components/email-sync-workspace';
+import { loadEmailSourceOptions, loadSyncSources } from '@/app/integrations/email-actions';
 import { apiGet } from '@/lib/api';
 import { currentPeriodInCostaRica } from '@/lib/date';
-import type { CategoryRecord, ReviewRecord } from '@/lib/types';
+import type { CategoryRecord } from '@/lib/types';
 import { assignCategory } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -32,14 +34,15 @@ const money = (value: string, currency: string) =>
 export default async function ReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; currency?: string }>;
+  searchParams: Promise<{ period?: string; currency?: string; sourceId?: string }>;
 }) {
   const search = await searchParams;
   const period = search.period ?? currentPeriodInCostaRica();
   const currency = (search.currency ?? 'CRC').toUpperCase();
-  const [response, planning] = await Promise.all([
-    apiGet<PaginatedResponse<ReviewRecord>>('/api/v1/review-queue?status=pending&pageSize=100'),
+  const [planning, sources, sourceOptions] = await Promise.all([
     apiGet<Planning>(`/api/v1/planning/summary?period=${period}&currency=${currency}`),
+    loadSyncSources(),
+    loadEmailSourceOptions(),
   ]);
   const activeCategories = planning.categories.filter(
     (category) => category.status === 'active' && category.type === 'expense',
@@ -48,10 +51,13 @@ export default async function ReviewPage({
   return (
     <>
       <PageHeader
-        title="Alertas y revisión"
-        description="Atiende primero las alertas y clasifica debajo los gastos que aún no tienen categoría."
+        title="Revisión"
+        description="Gastos pendientes de categoría y sincronización de correo."
         actions={
           <form className="period-selector">
+            {search.sourceId ? (
+              <input type="hidden" name="sourceId" value={search.sourceId} />
+            ) : null}
             <input name="period" type="month" defaultValue={period} />
             <select name="currency" defaultValue={currency}>
               <option>CRC</option>
@@ -61,31 +67,6 @@ export default async function ReviewPage({
           </form>
         }
       />
-      <section className="panel review-alerts-panel">
-        <div className="panel-heading compact-heading">
-          <div>
-            <h2>Alertas</h2>
-            <p>{response.pagination.total} elementos requieren una decisión humana</p>
-          </div>
-        </div>
-        {response.data.length === 0 ? (
-          <div className="compact-empty">No hay eventos esperando revisión manual.</div>
-        ) : (
-          <div className="alert-strip">
-            {response.data.map((item) => (
-              <article key={item.id}>
-                <div>
-                  <strong>{item.reason}</strong>
-                  <small>
-                    {new Date(item.createdAt).toLocaleString('es-CR')} · prioridad {item.priority}
-                  </small>
-                </div>
-                <StatusPill status={item.status} />
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
       <section className="panel review-expenses-panel">
         <div className="panel-heading">
           <div>
@@ -120,6 +101,9 @@ export default async function ReviewPage({
                   <input type="hidden" name="transactionId" value={item.id} />
                   <input type="hidden" name="period" value={period} />
                   <input type="hidden" name="currency" value={currency} />
+                  {search.sourceId ? (
+                    <input type="hidden" name="sourceId" value={search.sourceId} />
+                  ) : null}
                   <select name="categoryId" required defaultValue="">
                     <option value="" disabled>
                       Asignar categoría
@@ -137,6 +121,19 @@ export default async function ReviewPage({
           </div>
         )}
       </section>
+      {sources.ok && sourceOptions.ok ? (
+        <EmailSyncWorkspace
+          initialSources={sources.data}
+          options={sourceOptions.data}
+          {...(search.sourceId ? { requestedSourceId: search.sourceId } : {})}
+        />
+      ) : (
+        <section className="panel">
+          <h2>Sincronización de una fuente</h2>
+          <EmailFeedback error={!sources.ok ? sources : !sourceOptions.ok ? sourceOptions : null} />
+          <p>Recarga la página para volver a consultar las fuentes.</p>
+        </section>
+      )}
     </>
   );
 }

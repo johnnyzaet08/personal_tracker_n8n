@@ -84,6 +84,18 @@ export async function loadEmailSourceOptions(): Promise<EmailActionResult<EmailS
   }
 }
 
+export async function loadSyncSources(): Promise<EmailActionResult<EmailSourceConfiguration[]>> {
+  const first = await loadEmailSources();
+  if (!first.ok) return first;
+  const sources = [...first.data.data];
+  for (let page = 2; page <= first.data.pagination.totalPages; page += 1) {
+    const response = await loadEmailSources(page);
+    if (!response.ok) return response;
+    sources.push(...response.data.data);
+  }
+  return { ok: true, data: sources };
+}
+
 export async function saveEmailSource(
   id: string | null,
   form: FormData,
