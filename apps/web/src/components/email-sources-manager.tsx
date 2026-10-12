@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useRef, useState, useTransition } from 'react';
+import { useCallback, useState, useTransition } from 'react';
+import Link from 'next/link';
 import type {
   EmailSourceConfiguration,
   EmailSourceOptions,
@@ -10,7 +11,6 @@ import { Mail, Pencil, Plus, RefreshCw, Search } from 'lucide-react';
 import { loadEmailSources, patchEmailSource } from '@/app/integrations/email-actions';
 import { EmailFeedback } from '@/components/email-feedback';
 import { EmailSourceEditor } from '@/components/email-source-editor';
-import { EmailSyncPanel } from '@/components/email-sync-panel';
 import { EmptyState } from '@/components/empty-state';
 import { formatEmailDate, runLabels, safeEmailCode, type EmailActionResult } from '@/lib/email-ui';
 
@@ -22,17 +22,12 @@ export function EmailSourcesManager({
   options: EmailSourceOptions;
 }) {
   const [sources, setSources] = useState(initialSources);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
-    initialSources.data[0]?.id ?? null,
-  );
   const [editor, setEditor] = useState<EmailSourceConfiguration | 'new' | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<Extract<EmailActionResult<unknown>, { ok: false }> | null>(
     null,
   );
   const [notice, setNotice] = useState<string | null>(null);
-  const syncHeading = useRef<HTMLDivElement>(null);
-  const selectedSource = sources.data.find((source) => source.id === selectedSourceId) ?? null;
 
   const refreshSources = useCallback(async () => {
     try {
@@ -51,7 +46,6 @@ export function EmailSourcesManager({
         const response = await loadEmailSources(page);
         if (response.ok) {
           setSources(response.data);
-          setSelectedSourceId(response.data.data[0]?.id ?? null);
         } else setError(response);
       } catch {
         setError({ ok: false, error: 'No se pudo cargar esta página. Intenta de nuevo.' });
@@ -142,10 +136,7 @@ export function EmailSourcesManager({
                     ? 'Resultado registrado'
                     : 'Sin ejecuciones';
               return (
-                <article
-                  className={`email-source-card${source.id === selectedSourceId ? ' selected' : ''}`}
-                  key={source.id}
-                >
+                <article className="email-source-card" key={source.id}>
                   <div className="email-source-main">
                     <span className="email-source-icon">
                       <Mail size={20} aria-hidden="true" />
@@ -206,23 +197,10 @@ export function EmailSourcesManager({
                         {source.status === 'active' ? 'Desactivar' : 'Activar'}
                       </button>
                     </div>
-                    <button
-                      className="primary-button"
-                      type="button"
-                      disabled={source.status !== 'active' || !source.manualSyncEnabled || pending}
-                      onClick={() => {
-                        setSelectedSourceId(source.id);
-                        requestAnimationFrame(() =>
-                          syncHeading.current?.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start',
-                          }),
-                        );
-                      }}
-                    >
+                    <Link className="secondary-button" href={`/review?sourceId=${source.id}`}>
                       <Search size={15} aria-hidden="true" />
-                      Buscar correos
-                    </button>
+                      Ir a revisión
+                    </Link>
                   </div>
                   {!source.manualSyncEnabled ? (
                     <p className="email-source-note">
@@ -279,20 +257,9 @@ export function EmailSourcesManager({
                   : current.pagination.total + 1,
               },
             }));
-            setSelectedSourceId(saved.id);
           }}
         />
       ) : null}
-      <div ref={syncHeading} className="email-sync-anchor">
-        {selectedSource ? (
-          <EmailSyncPanel
-            key={selectedSource.id}
-            source={selectedSource}
-            options={options}
-            onCompleted={refreshSources}
-          />
-        ) : null}
-      </div>
     </div>
   );
 }

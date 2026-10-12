@@ -5,6 +5,76 @@ import { categoryUpdateSchema, recurringPaymentUpdateSchema } from '@tracker/con
 import { Prisma } from '@tracker/database';
 import type { PrismaService } from '../database/prisma.service';
 import { FinanceService } from './finance.service';
+import { TransactionQueryDto } from './list-query.dto';
+
+void test('dashboard includes monthly recurring reserves without a budget and replaces them with payments', async () => {
+  let paid = false;
+  const from = new Date('2026-10-01T06:00:00.000Z');
+  const to = new Date('2026-11-01T05:59:59.999Z');
+  const database = {
+    tenant: { findUniqueOrThrow: () => Promise.resolve({ defaultCurrency: 'USD' }) },
+    transaction: {
+      findMany: ({ where }: { where: Record<string, unknown> }) => {
+        assert.equal(where.tenantId, 'tenant-owner');
+        assert.equal(where.currency, 'CRC');
+        assert.equal(where.status, 'posted');
+        assert.deepEqual(where.occurredAt, { gte: from, lte: to });
+        return Promise.resolve([
+          {
+            amount: new Prisma.Decimal(paid ? '50' : '30'),
+            direction: 'debit',
+            occurredAt: new Date('2026-10-05T12:00:00.000Z'),
+            categoryId: 'category-1',
+            merchantId: 'merchant-1',
+            category: { name: 'Servicios', budgetGroup: 'needs' },
+            merchant: { displayName: 'Synthetic merchant' },
+          },
+        ]);
+      },
+      count: () => Promise.resolve(0),
+    },
+    recurringObligation: {
+      aggregate: ({ where }: { where: Record<string, unknown> }) => {
+        assert.deepEqual(where, {
+          tenantId: 'tenant-owner',
+          period: '2026-10',
+          currency: 'CRC',
+          paymentStatus: 'pending',
+        });
+        return Promise.resolve({
+          _sum: { expectedAmount: paid ? null : new Prisma.Decimal('20') },
+        });
+      },
+    },
+    reviewQueue: { count: () => Promise.resolve(0) },
+    integration: { findMany: () => Promise.resolve([]) },
+    monthlyIncome: {
+      aggregate: () => Promise.resolve({ _sum: { amount: new Prisma.Decimal('100') } }),
+    },
+    monthlyBudget: { findUnique: () => Promise.resolve(null) },
+  };
+  const service = new FinanceService({ client: database } as unknown as PrismaService);
+  const query = Object.assign(new TransactionQueryDto(), {
+    dateFrom: from.toISOString(),
+    dateTo: to.toISOString(),
+    currency: 'crc',
+  });
+
+  const pending = await service.summary('tenant-owner', query);
+  assert.equal(pending.expenses, '50.0000');
+  assert.equal(pending.balance, '50.0000');
+  assert.equal(pending.budget, null);
+  assert.equal(pending.timeline[0]?.debit, '30.0000');
+  assert.equal(pending.byCategory[0]?.amount, '30.0000');
+  assert.equal(pending.topMerchants[0]?.amount, '30.0000');
+
+  paid = true;
+  const settled = await service.summary('tenant-owner', query);
+  assert.equal(settled.expenses, pending.expenses);
+  assert.equal(settled.balance, pending.balance);
+  assert.equal(settled.timeline[0]?.debit, '50.0000');
+  assert.equal(settled.byCategory[0]?.amount, '50.0000');
+});
 
 void test('finance update contracts reject empty payloads and allow clearing optional references', () => {
   assert.equal(categoryUpdateSchema.safeParse({}).success, false);

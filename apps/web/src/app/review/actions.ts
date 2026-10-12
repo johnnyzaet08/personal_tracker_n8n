@@ -17,7 +17,12 @@ export async function assignCategory(form: FormData): Promise<void> {
   revalidatePath('/review');
   revalidatePath('/categories');
   revalidatePath('/');
-  redirect(
-    `/review?period=${required(form, 'period')}&currency=${required(form, 'currency')}&assigned=1`,
-  );
+  const search = new URLSearchParams({
+    period: required(form, 'period'),
+    currency: required(form, 'currency'),
+    assigned: '1',
+  });
+  const sourceId = form.get('sourceId');
+  if (typeof sourceId === 'string' && sourceId) search.set('sourceId', sourceId);
+  redirect(`/review?${search.toString()}`);
 }

@@ -22,7 +22,7 @@ export function AppNav({ compact = false }: { compact?: boolean }) {
               aria-current={active ? 'page' : undefined}
             >
               <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
-              <span>{compact && module.id === 'review' ? 'Alertas' : module.label}</span>
+              <span>{module.label}</span>
             </Link>
           );
         })}

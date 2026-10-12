@@ -90,7 +90,17 @@ los montos asignados, usados y disponibles. El ingreso del dashboard usa esa mis
 suma y no la agrega a créditos de transacciones, para evitar duplicados. Véanse ADR
 0005 y 0006.
 
+Gastos del período y balance restan obligaciones recurrentes pendientes del mismo
+tenant, mes y moneda: el resumen expresa el gasto comprometido, no sólo las salidas
+ya liquidadas. Timeline, categorías y comercios siguen reflejando transacciones
+confirmadas. Véase ADR 0007.
+
 El contador de pendientes del dashboard combina alertas abiertas con gastos
 confirmados sin categoría del período y moneda seleccionados, en línea con las dos
 listas de Alertas y revisión. Los pagos y reservas recurrentes siguen el grupo de su
 categoría, con Gastos necesarios como respaldo cuando falta. Véase ADR 0006.
+
+La web separa la clasificación de gastos confirmados sin categoría en Revisión, la
+cola de decisión humana en Alertas y la configuración de fuentes en Integraciones.
+La sincronización operativa de una fuente se inicia en Revisión y conserva
+previsualización, selección explícita, cancelación e historial.
