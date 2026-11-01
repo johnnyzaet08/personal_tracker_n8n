@@ -78,9 +78,9 @@ Versioned JSONs remain inactive and contain only `GMAIL_OAUTH_CREDENTIAL_REQUIRE
 - The former isolated branch `codex/gmail-reconciliation` is integrated into the Finance delivery branch. Its original base was main commit `eef015f3a5ff6e212935ff8fc61b22fe839a274e`.
 - ADR-005 locates sources/runs/previews in core before additive migrations. No EAV extension.
 - The API owns one MIME parser and bank-template adapter, shared by automatic/manual paths. Finance receives a connector-independent candidate.
-- Dashboard configuration, current-month/exact-date preview, explicit selection, polling, history and counters are implemented.
+- Dashboard configuration, allowed-three-month/date-range preview, explicit selection, polling, history and counters are implemented.
 - Manual Gmail runs can be cancelled from every active state. External execution phases have a hard 180-second API and n8n timeout; awaiting user selection retains a separate 30-minute TTL. Provider failures are reduced to a closed set of sanitized actionable codes (ADR-006).
-- Exact-date mode constrains the Gmail query to that Costa Rica calendar day before applying the ten-message cap.
+- Manual Gmail preview now follows Gmail page tokens through all unread results in the selected period. API writes are batched by ten; UI results show ten rows per page and selections persist across pages (ADR-007).
 - Message ID, canonical financial SHA-256 and tenant financial identity prevent duplicates. Conflicts retain a safe proposal in review queue; no financial fields or manual corrections are overwritten.
 - Gmail ingestion and manual recurring payments share a tenant advisory lock and recurring-obligation match policy. A recurring reserve is atomically replaced by one canonical `recurring_payment`; concurrent paths cannot double-book it.
 - All four migrations passed on existing tracker and a fresh disposable database. A logical private backup preceded the first write.
@@ -88,6 +88,7 @@ Versioned JSONs remain inactive and contain only `GMAIL_OAUTH_CREDENTIAL_REQUIRE
 - The real preview returned ten unread eligible messages and created no observations/transactions; the first selection created exactly two transactions. Scheduled Gmail polling added eight; reprocessing ten selected messages reported ten duplicates with no new transactions. Final tracker count is ten transactions, ten observations and zero financial reviews. See the validation report.
 - On 2026-09-10, after Finance integration, a new real monthly preview reached `awaiting_selection` with ten eligible rows, zero selected, zero new transactions and no errors. The UI was verified in `/integrations`; no message was processed during this validation.
 - n8n execution inputs use private tmpfs: save=none alone still stored initial inputs in 2.37.4. A new real ten-message replay produced zero new execution_data payloads. Fourteen task-owned soft-deleted test executions were removed; earlier user history was preserved. Compose pins regular mode and blocks scale until transient shared storage is designed.
+- On 2026-11-01, branch `codex/email-sync-period-range-pagination` implemented ADR-007: manual Gmail searches cover the current and previous two Costa Rica months, with inclusive start/end ranges; Gmail pages are ingested in batches of ten and the UI paginates results by ten. Build, lint, typecheck, policy tests, n8n workflow tests/validation, empty-database migrations, Docker rebuild, health checks and workflow connectivity passed. The opt-in PostgreSQL email integration suite was not run because `EMAIL_TEST_DATABASE_URL` was not configured.
 - `.private/` is excluded from Git, Docker build context and formatting. Real messages, tokens, credential IDs and financial values must never be copied into reports or fixtures.
 
 ## Security baseline

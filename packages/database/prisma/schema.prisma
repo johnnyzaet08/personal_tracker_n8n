@@ -469,6 +469,7 @@ model EmailSyncRun {
   periodMode     String    @map("period_mode") @db.VarChar(16)
   periodMonth    String    @map("period_month") @db.Char(7)
   exactDate      String?   @map("exact_date") @db.Char(10)
+  rangeEndDate   String?   @map("range_end_date") @db.Char(10)
   status         String    @default("pending") @db.VarChar(32)
   result         Json      @default("{}") @db.JsonB
   lastErrorCode  String?   @map("last_error_code") @db.VarChar(64)

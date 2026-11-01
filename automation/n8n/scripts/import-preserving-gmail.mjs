@@ -91,7 +91,7 @@ try {
       }
       if (validationQuery && node.type === 'n8n-nodes-base.gmailTrigger')
         node.parameters.filters.q = validationQuery;
-      if (validationQuery && node.name === 'List ten unread messages') {
+      if (validationQuery && node.name === 'List unread messages (all pages)') {
         node.parameters.queryParameters.parameters.find(
           (parameter) => parameter.name === 'q',
         ).value = validationQuery;

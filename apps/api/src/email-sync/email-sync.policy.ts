@@ -19,49 +19,95 @@ export function localDate(now = new Date()): string {
   }).format(now);
 }
 
-export function currentPeriod(period: string, exactDate?: string | null, now = new Date()) {
-  const month = localDate(now).slice(0, 7);
-  if (period !== 'current_month' && period !== 'exact_date') throw new Error('INVALID_PERIOD');
-  if (
-    period === 'exact_date' &&
-    (!exactDate ||
-      exactDate.slice(0, 7) !== month ||
-      !/^\d{4}-\d{2}-\d{2}$/u.test(exactDate) ||
-      localDate(new Date(`${exactDate}T12:00:00-06:00`)) !== exactDate)
-  ) {
-    throw new Error('DATE_OUTSIDE_CURRENT_MONTH');
-  }
-  const [year, monthNumber] = month.split('-').map(Number);
-  const start = new Date(`${month}-01T00:00:00-06:00`);
-  const end = new Date(Date.UTC(year!, monthNumber, 1, 6));
-  return { month, start, end, exactDate: period === 'exact_date' ? exactDate! : null };
+export function availableMonths(now = new Date()): string[] {
+  const [year, month] = localDate(now).slice(0, 7).split('-').map(Number);
+  return [0, 1, 2].map((offset) => {
+    const date = new Date(Date.UTC(year!, month! - 1 - offset, 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  });
 }
 
-export function inFinancialPeriod(
-  occurredAt: string,
-  month: string,
-  exactDate?: string | null,
-  now = new Date(),
-): boolean {
-  const date = new Date(occurredAt);
-  if (!Number.isFinite(date.getTime())) return false;
-  const local = localDate(date);
-  return (
-    month === localDate(now).slice(0, 7) &&
-    local.slice(0, 7) === month &&
-    (!exactDate || local === exactDate)
+function isLocalDate(value: string | undefined): value is string {
+  return Boolean(
+    value &&
+      /^\d{4}-\d{2}-\d{2}$/u.test(value) &&
+      localDate(new Date(`${value}T12:00:00-06:00`)) === value,
   );
 }
 
-export function gmailQuery(sender: string, month: string, exactDate?: string | null): string {
+function nextLocalDate(value: string): string {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day! + 1)).toISOString().slice(0, 10);
+}
+
+function localMidnight(value: string): Date {
+  return new Date(`${value}T00:00:00-06:00`);
+}
+
+export type RequestedPeriod = {
+  periodMonth?: string;
+  startDate?: string;
+  endDate?: string;
+  exactDate?: string | null;
+};
+
+export function currentPeriod(period: string, requested: RequestedPeriod = {}, now = new Date()) {
+  const currentMonth = localDate(now).slice(0, 7);
+  if (period !== 'current_month' && period !== 'exact_date') throw new Error('INVALID_PERIOD');
+  if (period === 'current_month') {
+    const month = requested.periodMonth ?? currentMonth;
+    if (!availableMonths(now).includes(month)) throw new Error('MONTH_OUTSIDE_ALLOWED_WINDOW');
+    const year = Number(month.slice(0, 4));
+    const monthNumber = Number(month.slice(5, 7));
+    const startDate = `${month}-01`;
+    const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+    const endDate = month === currentMonth ? localDate(now) : monthEnd;
+    return {
+      month,
+      start: localMidnight(startDate),
+      end: localMidnight(nextLocalDate(endDate)),
+      exactDate: null,
+      startDate,
+      endDate,
+    };
+  }
+
+  const startDate = requested.startDate ?? requested.exactDate ?? undefined;
+  const endDate = requested.endDate ?? requested.exactDate ?? undefined;
+  const minimumDate = `${availableMonths(now)[2]}-01`;
+  const maximumDate = localDate(now);
+  if (
+    !isLocalDate(startDate) ||
+    !isLocalDate(endDate) ||
+    startDate < minimumDate ||
+    endDate > maximumDate ||
+    startDate > endDate
+  )
+    throw new Error('DATE_OUTSIDE_ALLOWED_WINDOW');
+  return {
+    month: startDate.slice(0, 7),
+    start: localMidnight(startDate),
+    end: localMidnight(nextLocalDate(endDate)),
+    exactDate: startDate === endDate ? startDate : null,
+    startDate,
+    endDate,
+  };
+}
+
+export function inFinancialPeriod(occurredAt: string, startDate: string, endDate: string): boolean {
+  const date = new Date(occurredAt);
+  if (!Number.isFinite(date.getTime())) return false;
+  const local = localDate(date);
+  return local >= startDate && local <= endDate;
+}
+
+export function gmailQuery(sender: string, startDate: string, endDate: string): string {
   // Configuration accepts a single normalized mailbox; quotes protect Gmail search operators.
   if (!/^[^\s"<>:]+@[^\s"<>:]+$/u.test(sender)) throw new Error('INVALID_SENDER');
-  if (exactDate && exactDate.slice(0, 7) !== month) throw new Error('DATE_OUTSIDE_PERIOD');
-  const start = new Date(`${exactDate ?? `${month}-01`}T00:00:00-06:00`);
-  const [year, m] = month.split('-').map(Number);
-  const end = exactDate
-    ? new Date(start.getTime() + 86_400_000)
-    : new Date(Date.UTC(year!, m, 1, 6));
+  if (!isLocalDate(startDate) || !isLocalDate(endDate) || startDate > endDate)
+    throw new Error('INVALID_DATE_RANGE');
+  const start = localMidnight(startDate);
+  const end = localMidnight(nextLocalDate(endDate));
   return `from:(${sender}) is:unread after:${Math.floor(start.getTime() / 1000) - 1} before:${Math.floor(end.getTime() / 1000)}`;
 }
 

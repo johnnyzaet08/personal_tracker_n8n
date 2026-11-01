@@ -120,7 +120,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const ids=$('Load authorized run context').first().json.messageIds ?? [];if(ids.length>10)throw new Error('SELECTION_LIMIT_EXCEEDED');return ids.length?ids.map(id=>({json:{messageId:id,empty:false}})):[{json:{empty:true}}];"
+        "jsCode": "const ids=$('Load authorized run context').first().json.messageIds ?? [];return ids.length?ids.map(id=>({json:{messageId:id,empty:false}})):[{json:{empty:true}}];"
       },
       "id": "00000003-0000-4000-8000-000000000005",
       "name": "Only explicitly selected pending IDs",
@@ -212,7 +212,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const all=$input.all();const bad=all.find(i=>i.json.statusCode!==200||!i.json.body?.id);const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';if(bad)return [{json:{failed:true,errorCode:code(bad.json.statusCode)}}];return all.map(i=>({json:{failed:false,tenantId:$('Load authorized run context').first().json.run.tenantId,runId:$('Load authorized run context').first().json.run.id,mode:'selected',message:i.json.body}}));"
+        "jsCode": "const all=$input.all();if(all.some(i=>i.json.statusCode!==200||!i.json.body?.id))return [{json:{failed:true}}];return all.map(i=>({json:{failed:false,tenantId:$('Load authorized run context').first().json.run.tenantId,runId:$('Load authorized run context').first().json.run.id,mode:'selected',message:i.json.body}}));"
       },
       "id": "00000003-0000-4000-8000-000000000008",
       "name": "Check every selected retrieval",
@@ -390,7 +390,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:$json.errorCode ?? ($json.error ? 'GMAIL_EXECUTION_FAILED' : 'GMAIL_REQUEST_FAILED')}) }}",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:['GMAIL_CREDENTIALS_INVALID','GMAIL_RATE_LIMITED','GMAIL_SERVICE_UNAVAILABLE','GMAIL_REQUEST_FAILED'].includes($json.errorCode)?$json.errorCode:'GMAIL_EXECUTION_FAILED'}) }}",
         "options": {
           "timeout": 30000,
           "response": {
@@ -581,12 +581,12 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "executionTimeout": 180,
     "errorWorkflow": "10000000-0000-4000-8000-000000000099",
     "saveDataErrorExecution": "none",
     "saveDataSuccessExecution": "none",
     "saveManualExecutions": false,
-    "saveExecutionProgress": false
+    "saveExecutionProgress": false,
+    "executionTimeout": 180
   },
   "versionId": "00000003-0000-4000-8000-000000000099",
   "tags": []

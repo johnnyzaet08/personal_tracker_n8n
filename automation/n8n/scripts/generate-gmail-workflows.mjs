@@ -121,7 +121,7 @@ const gmail = (name, list = false) =>
         parameters: list
           ? [
               { name: 'q', value: "={{ $('Load authorized run context').first().json.query }}" },
-              { name: 'maxResults', value: '10' },
+              { name: 'maxResults', value: '500' },
               { name: 'labelIds', value: 'UNREAD' },
               { name: 'includeSpamTrash', value: 'false' },
             ]
@@ -130,10 +130,29 @@ const gmail = (name, list = false) =>
       options: {
         timeout: 30000,
         response: { response: { responseFormat: 'json', fullResponse: true, neverError: true } },
+        ...(list
+          ? {
+              pagination: {
+                paginationMode: 'updateAParameterInEachRequest',
+                parameters: {
+                  parameters: [
+                    {
+                      type: 'query',
+                      name: 'pageToken',
+                      value: '={{ $response.body.nextPageToken }}',
+                    },
+                  ],
+                },
+                paginationCompleteWhen: 'other',
+                completeExpression: '={{ !$response.body.nextPageToken }}',
+              },
+            }
+          : {}),
       },
     },
     {
       credentials,
+      onError: 'continueErrorOutput',
       retryOnFail: true,
       maxTries: 2,
       waitBetweenTries: 1000,
@@ -155,7 +174,7 @@ async function save(number, filename, name, build) {
   const { nodes, edges } = build();
   await writeFile(
     resolve(directory, filename),
-    `${JSON.stringify({ id: workflowId(number), name, active: false, nodes, connections: connections(edges), settings, versionId: `${String(number).padStart(8, '0')}-0000-4000-8000-000000000099`, tags: [] }, null, 2)}\n`,
+    `${JSON.stringify({ id: workflowId(number), name, active: false, nodes, connections: connections(edges), settings: [2, 3].includes(number) ? { ...settings, executionTimeout: 180 } : settings, versionId: `${String(number).padStart(8, '0')}-0000-4000-8000-000000000099`, tags: [] }, null, 2)}\n`,
   );
 }
 
@@ -282,7 +301,7 @@ const failure = () =>
   api(
     'Report sanitized failure',
     runPath('complete'),
-    `{tenantId:${runTenant},errorCode:'GMAIL_EXECUTION_FAILED'}`,
+    `{tenantId:${runTenant},errorCode:['GMAIL_CREDENTIALS_INVALID','GMAIL_RATE_LIMITED','GMAIL_SERVICE_UNAVAILABLE','GMAIL_REQUEST_FAILED'].includes($json.errorCode)?$json.errorCode:'GMAIL_EXECUTION_FAILED'}`,
   );
 
 await save(
@@ -292,36 +311,42 @@ await save(
   () => ({
     nodes: [
       ...manualBase('gmail-reconciliation-preview', 'fetching'),
-      gmail('List ten unread messages', true),
+      gmail('List unread messages (all pages)', true),
       code(
-        'Validate list and bound message IDs',
-        "const r=$json;if(r.statusCode!==200)return [{json:{failed:true}}]; const ids=(r.body?.messages ?? []).slice(0,10).map(m=>m.id).filter(id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id));return ids.length?ids.map(id=>({json:{messageId:id,failed:false,empty:false}})):[{json:{failed:false,empty:true}}];",
+        'Validate every result and retain bounded message IDs',
+        "const pages=$input.all();const bad=pages.find(i=>i.json.statusCode!==200);const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';if(bad)return [{json:{failed:true,errorCode:code(bad.json.statusCode)}}]; const ids=pages.flatMap(i=>i.json.body?.messages ?? []).map(m=>m.id).filter(id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id));return ids.length?ids.map(id=>({json:{messageId:id,failed:false,empty:false}})):[{json:{failed:false,empty:true}}];",
       ),
       branch('Gmail list failed?', '={{ $json.failed }}'),
       branch('No unread messages?', '={{ $json.empty }}'),
-      api('Store empty preview', runPath('candidates'), `{tenantId:${runTenant},messages:[]}`),
+      api(
+        'Store empty preview',
+        runPath('candidates'),
+        `{tenantId:${runTenant},messages:[],complete:true}`,
+      ),
       gmail('Retrieve preview message content'),
       code(
         'Aggregate transient preview batch',
-        `const all=$input.all(); const failed=all.some(i=>i.json.statusCode!==200||!i.json.body?.id); return [{json:{tenantId:${runTenant},failed,messages:failed?[]:all.map(i=>i.json.body)}}];`,
+        `const all=$input.all(); const bad=all.find(i=>i.json.statusCode!==200||!i.json.body?.id); const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED'; if(bad)return [{json:{tenantId:${runTenant},failed:true,errorCode:code(bad.json.statusCode),messages:[],complete:true}}]; const messages=all.map(i=>i.json.body); const batches=[]; for(let i=0;i<messages.length;i+=10)batches.push(messages.slice(i,i+10)); return batches.map((batch,index)=>({json:{tenantId:${runTenant},failed:false,messages:batch,complete:index===batches.length-1}}));`,
       ),
       branch('Gmail retrieval failed?', '={{ $json.failed }}'),
       api(
         'Parse and store minimal preview',
         runPath('candidates'),
-        '{tenantId:$json.tenantId,messages:$json.messages}',
+        '{tenantId:$json.tenantId,messages:$json.messages,complete:$json.complete}',
       ),
       failure(),
     ],
     edges: [
       ...baseEdges,
-      ['Report run progress', 'List ten unread messages'],
-      ['List ten unread messages', 'Validate list and bound message IDs'],
-      ['Validate list and bound message IDs', 'Gmail list failed?'],
+      ['Report run progress', 'List unread messages (all pages)'],
+      ['List unread messages (all pages)', 'Report sanitized failure', 1],
+      ['List unread messages (all pages)', 'Validate every result and retain bounded message IDs'],
+      ['Validate every result and retain bounded message IDs', 'Gmail list failed?'],
       ['Gmail list failed?', 'Report sanitized failure'],
       ['Gmail list failed?', 'No unread messages?', 1],
       ['No unread messages?', 'Store empty preview'],
       ['No unread messages?', 'Retrieve preview message content', 1],
+      ['Retrieve preview message content', 'Report sanitized failure', 1],
       ['Retrieve preview message content', 'Aggregate transient preview batch'],
       ['Aggregate transient preview batch', 'Gmail retrieval failed?'],
       ['Gmail retrieval failed?', 'Report sanitized failure'],
@@ -339,7 +364,7 @@ await save(
       ...manualBase('gmail-process-selected', 'processing'),
       code(
         'Only explicitly selected pending IDs',
-        "const ids=$('Load authorized run context').first().json.messageIds ?? [];if(ids.length>10)throw new Error('SELECTION_LIMIT_EXCEEDED');return ids.length?ids.map(id=>({json:{messageId:id,empty:false}})):[{json:{empty:true}}];",
+        "const ids=$('Load authorized run context').first().json.messageIds ?? [];return ids.length?ids.map(id=>({json:{messageId:id,empty:false}})):[{json:{empty:true}}];",
       ),
       branch('Selection already finished?', '={{ $json.empty }}'),
       gmail('Recheck selected Gmail message'),
@@ -363,6 +388,7 @@ await save(
       ['Only explicitly selected pending IDs', 'Selection already finished?'],
       ['Selection already finished?', 'Complete selected run'],
       ['Selection already finished?', 'Recheck selected Gmail message', 1],
+      ['Recheck selected Gmail message', 'Report sanitized failure', 1],
       ['Recheck selected Gmail message', 'Check every selected retrieval'],
       ['Check every selected retrieval', 'Selected retrieval failed?'],
       ['Selected retrieval failed?', 'Report sanitized failure'],

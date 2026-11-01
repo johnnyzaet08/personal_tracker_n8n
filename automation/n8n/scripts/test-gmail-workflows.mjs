@@ -75,21 +75,30 @@ test('automatic trigger discards malformed unrelated senders before API calls', 
   });
   assert.equal(gated.length, 0);
 });
-test('preview bounds messages to ten and handles empty/provider errors explicitly', () => {
+test('preview paginates every Gmail result and handles empty/provider errors explicitly', () => {
   const messages = Array.from({ length: 25 }, (_, index) => ({ id: `message-${index}` }));
   assert.equal(
-    execute(workflow02, 'Validate list and bound message IDs', [
-      { json: { statusCode: 200, body: { messages } } },
+    execute(workflow02, 'Validate every result and retain bounded message IDs', [
+      {
+        json: { statusCode: 200, body: { messages: messages.slice(0, 10), nextPageToken: 'next' } },
+      },
+      {
+        json: {
+          statusCode: 200,
+          body: { messages: messages.slice(10, 20), nextPageToken: 'last' },
+        },
+      },
+      { json: { statusCode: 200, body: { messages: messages.slice(20) } } },
     ]).length,
-    10,
+    25,
   );
   assert.deepEqual(
-    execute(workflow02, 'Validate list and bound message IDs', [
+    execute(workflow02, 'Validate every result and retain bounded message IDs', [
       { json: { statusCode: 200, body: {} } },
     ]),
     [{ json: { failed: false, empty: true } }],
   );
-  const failed = execute(workflow02, 'Validate list and bound message IDs', [
+  const failed = execute(workflow02, 'Validate every result and retain bounded message IDs', [
     { json: { statusCode: 401, body: { error: 'DO NOT PROPAGATE' } } },
   ]);
   assert.deepEqual(failed, [{ json: { failed: true, errorCode: 'GMAIL_CREDENTIALS_INVALID' } }]);
@@ -99,14 +108,36 @@ test('manual provider fetch uses API-authorized selection only', () => {
     { json: { messageIds: ['UNAUTHORIZED'] } },
   ]);
   assert.deepEqual(selected, [{ json: { messageId: 'chosen-message', empty: false } }]);
-  const oversized = {
+  const many = execute(workflow03, 'Only explicitly selected pending IDs', [], {
     'Load authorized run context': [
-      { json: { messageIds: Array.from({ length: 11 }, (_, i) => `message-${i}`) } },
+      { json: { messageIds: Array.from({ length: 25 }, (_, i) => `message-${i}`) } },
     ],
-  };
-  assert.throws(
-    () => execute(workflow03, 'Only explicitly selected pending IDs', [], oversized),
-    /SELECTION_LIMIT_EXCEEDED/u,
+  });
+  assert.equal(many.length, 25);
+});
+
+test('preview uses Gmail page tokens and batches all retained messages by ten', () => {
+  const list = node(workflow02, 'List unread messages (all pages)');
+  assert.equal(
+    list.parameters.queryParameters.parameters.find((entry) => entry.name === 'maxResults').value,
+    '500',
+  );
+  assert.equal(list.parameters.options.pagination.paginationMode, 'updateAParameterInEachRequest');
+  assert.equal(list.parameters.options.pagination.parameters.parameters[0].name, 'pageToken');
+  const batches = execute(
+    workflow02,
+    'Aggregate transient preview batch',
+    Array.from({ length: 21 }, (_, index) => ({
+      json: { statusCode: 200, body: { id: `message-${index}` } },
+    })),
+  );
+  assert.deepEqual(
+    batches.map((batch) => batch.json.messages.length),
+    [10, 10, 1],
+  );
+  assert.deepEqual(
+    batches.map((batch) => batch.json.complete),
+    [false, false, true],
   );
 });
 test('automatic and selected paths reach the same API parser with correct URLs', () => {
@@ -181,7 +212,7 @@ test('Gmail requests are readonly and do not request inline attachments', () => 
       );
       if (query.format) assert.equal(query.format, 'full');
       else {
-        assert.equal(query.maxResults, '10');
+        assert.equal(query.maxResults, '500');
         assert.equal(query.labelIds, 'UNREAD');
       }
     }
@@ -194,7 +225,7 @@ test('manual Gmail workflows enforce a three-minute execution timeout', () => {
 
 test('Gmail transport and OAuth failures report immediately through a sanitized branch', () => {
   for (const [workflow, names] of [
-    [workflow02, ['List ten unread messages', 'Retrieve preview message content']],
+    [workflow02, ['List unread messages (all pages)', 'Retrieve preview message content']],
     [workflow03, ['Recheck selected Gmail message']],
   ])
     for (const name of names) {
