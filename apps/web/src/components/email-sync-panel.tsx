@@ -28,8 +28,6 @@ import {
   emailRunErrorMessage,
   formatEmailDate,
   isRunning,
-  monthLastDay,
-  resultLabels,
   runLabels,
   safeEmailCode,
   type EmailActionResult,
@@ -52,7 +50,10 @@ export function EmailSyncPanel({
   onCompleted: () => Promise<void>;
 }) {
   const [period, setPeriod] = useState<'current_month' | 'exact_date'>('current_month');
-  const [exactDate, setExactDate] = useState(options.today);
+  const [periodMonth, setPeriodMonth] = useState(options.currentMonth);
+  const [startDate, setStartDate] = useState(options.today);
+  const [endDate, setEndDate] = useState(options.today);
+  const [candidatePage, setCandidatePage] = useState(1);
   const [run, setRun] = useState<EmailSyncRun | null>(null);
   const [history, setHistory] = useState<PaginatedResponse<EmailSyncRun> | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
@@ -147,12 +148,26 @@ export function EmailSyncPanel({
     run?.candidates.filter((candidate) => candidate.eligible).map((candidate) => candidate.id) ??
     [];
   const selectedIds = selection.filter((id) => eligibleIds.includes(id));
+  const earliestDate = `${options.availableMonths.at(-1)}-01`;
+  const candidatePageSize = 10;
+  const candidatePageCount = Math.max(
+    1,
+    Math.ceil((run?.candidates.length ?? 0) / candidatePageSize),
+  );
+  const visibleCandidates =
+    run?.candidates.slice(
+      (candidatePage - 1) * candidatePageSize,
+      candidatePage * candidatePageSize,
+    ) ?? [];
 
   function search() {
-    if (period === 'exact_date' && !exactDate.startsWith(`${options.currentMonth}-`)) {
+    if (
+      period === 'exact_date' &&
+      (startDate < earliestDate || endDate > options.today || startDate > endDate)
+    ) {
       setError({
         ok: false,
-        error: 'La fecha exacta debe pertenecer al mes actual de Costa Rica.',
+        error: 'El rango debe estar entre el inicio de los últimos tres meses y hoy.',
       });
       return;
     }
@@ -165,12 +180,13 @@ export function EmailSyncPanel({
         const response = await previewEmailSource(source.id, {
           schemaVersion: 1,
           period,
-          ...(period === 'exact_date' ? { exactDate } : {}),
+          ...(period === 'current_month' ? { periodMonth } : { startDate, endDate }),
           idempotencyKey,
         });
         if (response.ok) {
           receiveRun(response.data);
           setSelection([]);
+          setCandidatePage(1);
           setPreviewKey(null);
         } else setError(response);
       } catch {
@@ -197,7 +213,10 @@ export function EmailSyncPanel({
           response.data.data.find((item) => item.id === run?.id) ??
           response.data.data[0] ??
           null;
-        if (latest?.id !== run?.id) setSelection([]);
+        if (latest?.id !== run?.id) {
+          setSelection([]);
+          setCandidatePage(1);
+        }
         setRun(latest);
         setLoading(false);
         await onCompleted();
@@ -295,8 +314,26 @@ export function EmailSyncPanel({
                   setPreviewKey(null);
                 }}
               />
-              <span>Mes actual · {options.currentMonth}</span>
+              <span>Mes</span>
             </label>
+            {period === 'current_month' ? (
+              <label className="email-date-field">
+                <span className="sr-only">Mes de búsqueda</span>
+                <select
+                  value={periodMonth}
+                  onChange={(event) => {
+                    setPeriodMonth(event.target.value);
+                    setPreviewKey(null);
+                  }}
+                >
+                  {options.availableMonths.map((month, index) => (
+                    <option key={month} value={month}>
+                      {index === 0 ? `Mes actual · ${month}` : month}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label className="email-radio">
               <input
                 type="radio"
@@ -308,23 +345,39 @@ export function EmailSyncPanel({
                   setPreviewKey(null);
                 }}
               />
-              <span>Fecha exacta del mes</span>
+              <span>Rango de fechas</span>
             </label>
             {period === 'exact_date' ? (
-              <label className="email-date-field">
-                <span className="sr-only">Fecha exacta</span>
-                <input
-                  type="date"
-                  required
-                  min={`${options.currentMonth}-01`}
-                  max={monthLastDay(options.currentMonth)}
-                  value={exactDate}
-                  onChange={(event) => {
-                    setExactDate(event.target.value);
-                    setPreviewKey(null);
-                  }}
-                />
-              </label>
+              <>
+                <label className="email-date-field">
+                  <span>Inicio</span>
+                  <input
+                    type="date"
+                    required
+                    min={earliestDate}
+                    max={options.today}
+                    value={startDate}
+                    onChange={(event) => {
+                      setStartDate(event.target.value);
+                      setPreviewKey(null);
+                    }}
+                  />
+                </label>
+                <label className="email-date-field">
+                  <span>Fin</span>
+                  <input
+                    type="date"
+                    required
+                    min={earliestDate}
+                    max={options.today}
+                    value={endDate}
+                    onChange={(event) => {
+                      setEndDate(event.target.value);
+                      setPreviewKey(null);
+                    }}
+                  />
+                </label>
+              </>
             ) : null}
             <button
               type="submit"
@@ -337,8 +390,8 @@ export function EmailSyncPanel({
           </div>
         </fieldset>
         <p>
-          Hasta los últimos 10 correos no leídos de esta dirección. La fecha de la transacción
-          determina si corresponde al período. La búsqueda no crea transacciones.
+          Se buscarán todos los correos no leídos de esta dirección dentro del período. La tabla
+          muestra hasta 10 por página. La búsqueda no crea transacciones.
         </p>
       </form>
       {!sourceEnabled ? (
@@ -355,6 +408,7 @@ export function EmailSyncPanel({
             onClick={() => {
               setRun(activeRun);
               setSelection([]);
+              setCandidatePage(1);
             }}
           >
             Volver a la ejecución activa
@@ -387,8 +441,10 @@ export function EmailSyncPanel({
               <div>
                 <h3>{runLabels[run.status]}</h3>
                 <p>
-                  {run.exactDate ?? run.periodMonth} · Iniciada{' '}
-                  {formatEmailDate(run.createdAt, true)}
+                  {run.startDate && run.endDate
+                    ? `${run.startDate} – ${run.endDate}`
+                    : run.periodMonth}{' '}
+                  · Iniciada {formatEmailDate(run.createdAt, true)}
                 </p>
               </div>
             </div>
@@ -454,7 +510,8 @@ export function EmailSyncPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {run.candidates.map((candidate, index) => {
+                  {visibleCandidates.map((candidate, index) => {
+                    const candidateNumber = (candidatePage - 1) * candidatePageSize + index + 1;
                     const financial = candidate.financial;
                     const classification =
                       candidate.processingResult?.classification ?? candidate.classification;
@@ -468,7 +525,7 @@ export function EmailSyncPanel({
                             <label className="email-checkbox">
                               <input
                                 type="checkbox"
-                                aria-label={`Seleccionar correo ${index + 1}${financial?.merchant ? ` de ${financial.merchant}` : ''}`}
+                                aria-label={`Seleccionar correo ${candidateNumber}${financial?.merchant ? ` de ${financial.merchant}` : ''}`}
                                 checked={selectedIds.includes(candidate.id)}
                                 disabled={!candidate.eligible || pending || !sourceEnabled}
                                 onChange={(event) =>
@@ -479,7 +536,7 @@ export function EmailSyncPanel({
                                   )
                                 }
                               />
-                              <span>Correo {index + 1}</span>
+                              <span>Correo {candidateNumber}</span>
                             </label>
                           ) : (
                             <span>{candidate.selected ? 'Seleccionado' : 'Sin seleccionar'}</span>
@@ -504,6 +561,31 @@ export function EmailSyncPanel({
                   })}
                 </tbody>
               </table>
+              {candidatePageCount > 1 ? (
+                <nav className="pagination email-pagination" aria-label="Paginación de correos">
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={candidatePage <= 1}
+                    onClick={() => setCandidatePage((page) => Math.max(1, page - 1))}
+                  >
+                    Anterior
+                  </button>
+                  <span>
+                    {candidatePage} de {candidatePageCount}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={candidatePage >= candidatePageCount}
+                    onClick={() =>
+                      setCandidatePage((page) => Math.min(candidatePageCount, page + 1))
+                    }
+                  >
+                    Siguiente
+                  </button>
+                </nav>
+              ) : null}
             </div>
           ) : !isRunning(run.status) ? (
             <EmptyState
@@ -528,20 +610,6 @@ export function EmailSyncPanel({
               </div>
             </div>
           ) : null}
-          <div className="email-results">
-            <h3>Resultado de la ejecución</h3>
-            <dl>
-              {resultLabels.map(([key, label]) => (
-                <div key={key}>
-                  <dt>{label}</dt>
-                  <dd>{run.result[key]}</dd>
-                </div>
-              ))}
-            </dl>
-            <p>
-              Las diferencias financieras pasan a revisión. Las correcciones manuales se conservan.
-            </p>
-          </div>
           {run.result.errors.length > 0 ? (
             <div className="email-feedback email-feedback-error">
               <h4>Errores de procesamiento</h4>
@@ -576,12 +644,17 @@ export function EmailSyncPanel({
                   onClick={() => {
                     setRun(item);
                     setSelection([]);
+                    setCandidatePage(1);
                     setError(null);
                   }}
                 >
                   <span>
                     {formatEmailDate(item.createdAt, true)}
-                    <small>{item.exactDate ?? item.periodMonth}</small>
+                    <small>
+                      {item.startDate && item.endDate
+                        ? `${item.startDate} – ${item.endDate}`
+                        : item.periodMonth}
+                    </small>
                   </span>
                   <span>{runLabels[item.status]}</span>
                 </button>

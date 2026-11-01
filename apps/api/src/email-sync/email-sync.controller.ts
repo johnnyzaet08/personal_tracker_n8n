@@ -37,7 +37,11 @@ const matchQuery = tenantQuery.extend({
 });
 const message = z.record(z.string(), z.unknown());
 const automaticBody = z.strictObject({ tenantId: z.uuid(), message });
-const messagesBody = z.strictObject({ tenantId: z.uuid(), messages: z.array(message).max(10) });
+const messagesBody = z.strictObject({
+  tenantId: z.uuid(),
+  messages: z.array(message).max(10),
+  complete: z.boolean().default(true),
+});
 const progressBody = z.strictObject({
   tenantId: z.uuid(),
   status: z.enum(['fetching', 'processing']),
@@ -103,7 +107,7 @@ export class EmailSyncController {
   @HttpCode(202)
   @ApiAcceptedResponse({ description: 'Durable asynchronous preview run; poll the run endpoint' })
   @ApiOperation({
-    summary: 'Search the last ten unread messages of one sender for the current Costa Rica month',
+    summary: 'Search unread messages from one sender for an allowed Costa Rica month or date range',
   })
   @ApiBody({ schema: z.toJSONSchema(emailSyncPreviewRequestSchema) as never })
   preview(
@@ -217,14 +221,14 @@ export class InternalEmailSyncController {
   @Post('email-sync-runs/:id/candidates')
   @ApiOperation({
     summary:
-      'Parse at most ten unread messages into a preview without inserting observations or transactions',
+      'Parse one batch of at most ten unread messages into a preview without inserting observations or transactions',
   })
   @ApiBody({ schema: z.toJSONSchema(messagesBody) as never })
   candidates(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(messagesBody)) body: z.infer<typeof messagesBody>,
   ) {
-    return this.email.candidates(body.tenantId, id, body.messages);
+    return this.email.candidates(body.tenantId, id, body.messages, body.complete);
   }
 
   @Post('email-sync-runs/:id/process-message')

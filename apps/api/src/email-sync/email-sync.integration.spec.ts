@@ -347,7 +347,7 @@ void test(
       const failed = await service.complete(tenantId, partial.id);
       assert.equal(failed.status, 'failed');
       assert.equal(failed.lastErrorCode, 'INCOMPLETE_SELECTION');
-      const limited = await service.preview(
+      const unlimited = await service.preview(
         tenantId,
         source.id,
         { schemaVersion: 1, period: 'current_month' },
@@ -355,22 +355,32 @@ void test(
       );
       const limitedReady = await service.candidates(
         tenantId,
-        limited.id,
-        Array.from({ length: 12 }, (_, i) =>
+        unlimited.id,
+        Array.from({ length: 10 }, (_, i) =>
           message(`synthetic-limit-${i}`, { reference: `SYNTHLIMIT${String(i).padStart(6, '0')}` }),
         ),
+        false,
       );
-      assert.equal(limitedReady.result.found, 10);
-      assert.equal(
-        (await service.candidates(tenantId, limited.id, [message('synthetic-extra')])).result.found,
-        10,
+      assert.equal(limitedReady.status, 'fetching');
+      const nextBatch = await service.candidates(
+        tenantId,
+        unlimited.id,
+        Array.from({ length: 10 }, (_, i) =>
+          message(`synthetic-extra-${i}`, { reference: `SYNTHMORE${String(i).padStart(6, '0')}` }),
+        ),
+        false,
       );
-      await service.cancel(tenantId, limited.id);
-      await assert.rejects(service.progress(tenantId, limited.id, 'fetching'));
+      assert.equal(nextBatch.status, 'fetching');
+      const completedBatch = await service.candidates(tenantId, unlimited.id, [
+        message('synthetic-final', { reference: 'SYNTHMORE000010' }),
+      ]);
+      assert.equal(completedBatch.result.found, 21);
+      await service.cancel(tenantId, unlimited.id);
+      await assert.rejects(service.progress(tenantId, unlimited.id, 'fetching'));
       await assert.rejects(
-        service.candidates(tenantId, limited.id, [message('synthetic-late-callback')]),
+        service.candidates(tenantId, unlimited.id, [message('synthetic-late-callback')]),
       );
-      assert.equal((await service.complete(tenantId, limited.id)).status, 'cancelled');
+      assert.equal((await service.complete(tenantId, unlimited.id)).status, 'cancelled');
       const concurrent = await Promise.all([
         service.automatic(
           tenantId,

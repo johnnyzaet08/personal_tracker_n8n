@@ -49,19 +49,37 @@ export const emailSyncPreviewRequestSchema = z
   .strictObject({
     schemaVersion: z.literal(1).default(1),
     period: z.enum(['current_month', 'exact_date']),
+    periodMonth: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/u)
+      .optional(),
+    startDate: z.iso.date().optional(),
+    endDate: z.iso.date().optional(),
     exactDate: z.iso.date().optional(),
     idempotencyKey: uuidSchema.optional(),
   })
-  .refine((v) => (v.period === 'exact_date' ? Boolean(v.exactDate) : !v.exactDate), {
-    message: 'An exact date is required only for the exact-date period',
-    path: ['exactDate'],
+  .refine(
+    (value) => {
+      if (value.period === 'current_month')
+        return !value.startDate && !value.endDate && !value.exactDate;
+      const legacySingleDate = Boolean(value.exactDate) && !value.startDate && !value.endDate;
+      const dateRange = Boolean(value.startDate && value.endDate) && !value.exactDate;
+      return legacySingleDate || dateRange;
+    },
+    {
+      message: 'Choose one month or provide a complete date range',
+      path: ['startDate'],
+    },
+  )
+  .refine((value) => !value.periodMonth || value.period === 'current_month', {
+    message: 'A selected month is only valid for month searches',
+    path: ['periodMonth'],
   });
 export const emailSyncSelectionRequestSchema = z.strictObject({
   schemaVersion: z.literal(1).default(1),
   candidateIds: z
     .array(uuidSchema)
     .min(1)
-    .max(10)
     .refine((v) => new Set(v).size === v.length),
 });
 export const bankEmailAdapterResultSchema = z.strictObject({
@@ -114,8 +132,10 @@ export const emailSyncRunSchema = z.strictObject({
   period: z.enum(['current_month', 'exact_date']),
   periodMonth: z.string().regex(/^\d{4}-\d{2}$/u),
   exactDate: z.iso.date().nullable(),
+  startDate: z.iso.date().nullable(),
+  endDate: z.iso.date().nullable(),
   result: emailSyncRunResultSchema,
-  candidates: z.array(emailSyncCandidateSchema).max(10),
+  candidates: z.array(emailSyncCandidateSchema),
   lastErrorCode: emailReasonCodeSchema.nullable(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -134,6 +154,7 @@ export const emailSourceOptionsSchema = z.strictObject({
     z.strictObject({ key: z.string(), displayName: z.string(), version: z.string() }),
   ),
   currentMonth: z.string(),
+  availableMonths: z.array(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/u)).length(3),
   today: z.iso.date(),
   timezone: z.literal('America/Costa_Rica'),
 });

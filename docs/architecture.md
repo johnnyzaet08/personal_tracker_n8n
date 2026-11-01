@@ -73,12 +73,15 @@ Primero se escala verticalmente el monolito. El perfil `scale` añade Redis y wo
 ## Sincronización seleccionada
 
 La API crea `core.email_sync_runs` y devuelve 202; n8n consulta un contexto
-protegido antes de usar Gmail. El preview guarda hasta diez candidatos mínimos en
-`core.email_sync_candidates`, sin crear observaciones ni transacciones. La selección
-explícita se valida por tenant/run y los mensajes se recuperan otra vez. Ambos
-caminos usan `email-ingestion/mime-parser.ts` y `bank-purchase-adapter.ts` en la API.
+protegido antes de usar Gmail. El preview pagina Gmail hasta terminar y guarda
+candidatos mínimos en lotes de diez en `core.email_sync_candidates`, sin crear
+observaciones ni transacciones durante la búsqueda. La selección explícita se
+valida por tenant/run y los mensajes se recuperan otra vez. La UI pagina los
+candidatos en grupos de diez. Se permite elegir el mes actual o uno de los dos
+anteriores, o un rango inclusivo de fechas dentro de esa ventana. Ambos caminos
+usan `email-ingestion/mime-parser.ts` y `bank-purchase-adapter.ts` en la API.
 `core.email_sources` contiene configuración explícita con FKs de tenant compuestos.
-Finance recibe un candidato independiente de la representación Gmail.
+Finance recibe un candidato independiente de la representación Gmail. Véase ADR-007.
 
 ## Ingresos manuales y presupuesto
 

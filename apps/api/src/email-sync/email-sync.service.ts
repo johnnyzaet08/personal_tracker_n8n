@@ -36,6 +36,7 @@ import {
   EMAIL_SELECTION_TTL_MS,
   EMAIL_TIMEZONE,
   EXECUTING_RUN_STATES,
+  availableMonths,
   canonicalAmount,
   canonicalText,
   currentPeriod,
@@ -148,6 +149,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
       accounts,
       adapters: EMAIL_ADAPTERS,
       currentMonth: localDate().slice(0, 7),
+      availableMonths: availableMonths(),
       today: localDate(),
       timezone: EMAIL_TIMEZONE,
     };
@@ -250,9 +252,12 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     this.ensureEnabled(source, 'manual');
     let period;
     try {
-      period = currentPeriod(input.period, input.exactDate);
+      period = currentPeriod(input.period, input);
     } catch {
-      throw problem('DATE_OUTSIDE_CURRENT_MONTH', 'Only the current calendar month is allowed');
+      throw problem(
+        'DATE_OUTSIDE_ALLOWED_WINDOW',
+        'Choose a month or date range within the current and previous two months',
+      );
     }
     const idempotencyKey = input.idempotencyKey ?? randomUUID();
     const previous = await this.prisma.client.emailSyncRun.findUnique({
@@ -262,7 +267,9 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
       if (
         previous.sourceId !== sourceId ||
         previous.periodMode !== input.period ||
-        previous.exactDate !== period.exactDate
+        previous.periodMonth !== period.month ||
+        previous.exactDate !== (input.period === 'exact_date' ? period.startDate : null) ||
+        previous.rangeEndDate !== (input.period === 'exact_date' ? period.endDate : null)
       )
         throw new ConflictException({
           code: 'IDEMPOTENCY_CONFLICT',
@@ -281,7 +288,8 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
           correlationId,
           periodMode: input.period,
           periodMonth: period.month,
-          exactDate: period.exactDate,
+          exactDate: input.period === 'exact_date' ? period.startDate : null,
+          rangeEndDate: input.period === 'exact_date' ? period.endDate : null,
           status: 'pending',
           result: json(emptyRunResult()),
           expiresAt: new Date(Date.now() + EMAIL_RUN_TIMEOUT_MS),
@@ -323,8 +331,9 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     const candidates = await this.prisma.client.emailSyncCandidate.findMany({
       where: { tenantId, runId: id },
       orderBy: { receivedAt: 'desc' },
-      take: 10,
     });
+    const startDate = run.periodMode === 'exact_date' ? run.exactDate : null;
+    const endDate = run.periodMode === 'exact_date' ? (run.rangeEndDate ?? run.exactDate) : null;
     return emailSyncRunSchema.parse({
       schemaVersion: 1,
       id: run.id,
@@ -333,7 +342,9 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
       status: run.status,
       period: run.periodMode,
       periodMonth: run.periodMonth,
-      exactDate: run.exactDate,
+      exactDate: startDate && endDate === startDate ? startDate : null,
+      startDate,
+      endDate,
       result: run.result,
       candidates: candidates.map((row) => ({
         id: row.id,
@@ -437,14 +448,13 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     const selected = await this.prisma.client.emailSyncCandidate.findMany({
       where: { tenantId, runId: id, selected: true, processingResult: { equals: Prisma.DbNull } },
       select: { messageId: true },
-      take: 10,
     });
+    const period = this.periodForRun(run);
     return {
       run: await this.run(tenantId, id),
       source: this.sourceView(source),
-      query: gmailQuery(source.senderAddress, run.periodMonth, run.exactDate),
+      query: gmailQuery(source.senderAddress, period.startDate, period.endDate),
       messageIds: selected.map((row) => row.messageId),
-      limit: 10,
     };
   }
 
@@ -468,7 +478,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     return { accepted: true };
   }
 
-  async candidates(tenantId: string, id: string, messages: unknown[]) {
+  async candidates(tenantId: string, id: string, messages: unknown[], complete = true) {
     await this.prisma.client.$transaction(
       async (tx) => {
         await this.lockTenant(tx, tenantId);
@@ -483,7 +493,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
         if (!['pending', 'fetching'].includes(run.status))
           throw problem('INVALID_RUN_TRANSITION', 'This run cannot receive a preview');
         // Preview extraction stores only a fixed financial projection, never source events or ledger rows.
-        for (const message of messages.slice(0, 10)) {
+        for (const message of messages) {
           let sender: string;
           try {
             sender = extractGmailSender(message);
@@ -491,7 +501,6 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
             continue;
           }
           if (sender !== source.senderAddress) continue;
-          if ((await tx.emailSyncCandidate.count({ where: { tenantId, runId: id } })) >= 10) break;
           let parsed: ParsedMessage;
           try {
             parsed = this.parse(message, source);
@@ -546,6 +555,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
             update: {},
           });
         }
+        if (!complete) return;
         const rows = await tx.emailSyncCandidate.findMany({ where: { tenantId, runId: id } });
         await tx.integration.updateMany({
           where: { tenantId, id: source.integrationId },
@@ -743,14 +753,8 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
       reasonCodes: [],
     };
     const candidate = parsed.adapterResult.candidate;
-    if (
-      candidate &&
-      !inFinancialPeriod(
-        candidate.occurredAt,
-        run?.periodMonth ?? localDate().slice(0, 7),
-        run?.exactDate,
-      )
-    )
+    const period = run ? this.periodForRun(run) : currentPeriod('current_month');
+    if (candidate && !inFinancialPeriod(candidate.occurredAt, period.startDate, period.endDate))
       return {
         ...result,
         classification: 'ignored_outside_period',
@@ -1078,9 +1082,20 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
         'The selected email source is disabled for this operation',
       );
   }
+  private periodForRun(run: Run) {
+    return currentPeriod(run.periodMode, {
+      periodMonth: run.periodMonth,
+      ...(run.periodMode === 'exact_date'
+        ? {
+            startDate: run.exactDate ?? undefined,
+            endDate: run.rangeEndDate ?? run.exactDate ?? undefined,
+          }
+        : {}),
+    });
+  }
   private ensureCurrentRun(run: Run) {
-    if (run.periodMonth !== localDate().slice(0, 7))
-      throw problem('RUN_PERIOD_EXPIRED', 'Start a new synchronization for the current month');
+    if (!availableMonths().includes(run.periodMonth))
+      throw problem('RUN_PERIOD_EXPIRED', 'The selected period is no longer available');
     if (run.expiresAt.getTime() <= Date.now())
       throw problem(
         run.status === 'awaiting_selection' ? 'PREVIEW_EXPIRED' : 'RUN_TIMEOUT',
@@ -1162,6 +1177,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
   private async expireRuns(tenantId?: string, sourceId?: string) {
+    const allowedMonths = availableMonths();
     const scope = {
       ...(tenantId ? { tenantId } : {}),
       ...(sourceId ? { sourceId } : {}),
@@ -1169,7 +1185,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
     const where = {
       ...scope,
       status: { in: ACTIVE_RUN_STATES },
-      OR: [{ expiresAt: { lte: new Date() } }, { periodMonth: { not: localDate().slice(0, 7) } }],
+      OR: [{ expiresAt: { lte: new Date() } }, { periodMonth: { notIn: allowedMonths } }],
     };
     const tenants = await this.prisma.client.emailSyncRun.findMany({
       where,
@@ -1185,7 +1201,7 @@ export class EmailSyncService implements OnModuleInit, OnModuleDestroy {
             ...scope,
             tenantId: tenant.tenantId,
             status: { in: ACTIVE_RUN_STATES },
-            periodMonth: { not: localDate().slice(0, 7) },
+            periodMonth: { notIn: allowedMonths },
           },
           data: { status: 'failed', lastErrorCode: 'RUN_PERIOD_EXPIRED', completedAt: new Date() },
         });

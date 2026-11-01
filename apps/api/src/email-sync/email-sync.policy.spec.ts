@@ -7,6 +7,7 @@ import {
 import {
   canonicalAmount,
   currentPeriod,
+  availableMonths,
   EMAIL_RUN_TIMEOUT_MS,
   EMAIL_SELECTION_TTL_MS,
   financialIdentity,
@@ -28,33 +29,46 @@ void test('current month uses Costa Rica local date across the UTC month boundar
     currentPeriod('current_month', undefined, now).start.toISOString(),
     '2026-09-01T06:00:00.000Z',
   );
-  assert.ok(inFinancialPeriod('2026-10-01T05:00:00Z', '2026-09', null, now));
-  assert.equal(inFinancialPeriod('2026-10-01T06:00:00Z', '2026-09', null, now), false);
+  assert.ok(inFinancialPeriod('2026-10-01T05:00:00Z', '2026-09-01', '2026-09-30'));
+  assert.equal(inFinancialPeriod('2026-10-01T06:00:00Z', '2026-09-01', '2026-09-30'), false);
 });
 
-void test('exact date validation rejects outside month and invalid days', () => {
+void test('three-month month and date range validation respects Costa Rica today', () => {
   const now = new Date('2026-09-04T12:00:00Z');
-  assert.equal(currentPeriod('exact_date', '2026-09-01', now).exactDate, '2026-09-01');
-  for (const date of ['2026-08-31', '2026-10-01', '2026-09-31'])
-    assert.throws(() => currentPeriod('exact_date', date, now));
+  assert.deepEqual(availableMonths(now), ['2026-09', '2026-08', '2026-07']);
+  assert.equal(currentPeriod('current_month', { periodMonth: '2026-08' }, now).month, '2026-08');
+  assert.equal(
+    currentPeriod('exact_date', { startDate: '2026-08-31', endDate: '2026-09-04' }, now).endDate,
+    '2026-09-04',
+  );
+  for (const range of [
+    { startDate: '2026-06-30', endDate: '2026-07-01' },
+    { startDate: '2026-09-05', endDate: '2026-09-05' },
+    { startDate: '2026-09-04', endDate: '2026-09-03' },
+    { startDate: '2026-09-31', endDate: '2026-09-31' },
+  ])
+    assert.throws(() => currentPeriod('exact_date', range, now));
   assert.equal(
     emailSyncPreviewRequestSchema.safeParse({ period: 'current_month', exactDate: '2026-09-01' })
       .success,
     false,
   );
   assert.equal(emailSyncPreviewRequestSchema.safeParse({ period: 'exact_date' }).success, false);
-  assert.equal(inFinancialPeriod('2026-09-03T17:00:00Z', '2026-09', '2026-09-04', now), false);
+  assert.equal(inFinancialPeriod('2026-09-03T17:00:00Z', '2026-09-04', '2026-09-04'), false);
 });
 
-void test('Gmail search specifies exact sender, unread and Costa Rica month bounds', () => {
-  const query = gmailQuery('alerts@bank.example', '2026-09');
+void test('Gmail search specifies exact sender, unread and Costa Rica date range bounds', () => {
+  const query = gmailQuery('alerts@bank.example', '2026-09-01', '2026-09-30');
   assert.ok(query.includes('from:(alerts@bank.example) is:unread'));
   assert.ok(query.includes(`after:${Date.parse('2026-09-01T06:00:00Z') / 1000 - 1}`));
-  const exact = gmailQuery('alerts@bank.example', '2026-09', '2026-09-04');
-  assert.ok(exact.includes(`after:${Date.parse('2026-09-04T06:00:00Z') / 1000 - 1}`));
+  assert.ok(query.includes(`before:${Date.parse('2026-10-01T06:00:00Z') / 1000}`));
+  const exact = gmailQuery('alerts@bank.example', '2026-09-03', '2026-09-04');
+  assert.ok(exact.includes(`after:${Date.parse('2026-09-03T06:00:00Z') / 1000 - 1}`));
   assert.ok(exact.includes(`before:${Date.parse('2026-09-05T06:00:00Z') / 1000}`));
-  assert.throws(() => gmailQuery('alerts@bank.example', '2026-09', '2026-08-31'));
-  assert.throws(() => gmailQuery('alerts@bank.example OR from:attacker@example.test', '2026-09'));
+  assert.throws(() => gmailQuery('alerts@bank.example', '2026-09-04', '2026-08-31'));
+  assert.throws(() =>
+    gmailQuery('alerts@bank.example OR from:attacker@example.test', '2026-09-01', '2026-09-30'),
+  );
 });
 
 void test('financial identity uses decimal strings and stable reference, while changes alter comparison hash', () => {

@@ -133,7 +133,7 @@
             },
             {
               "name": "maxResults",
-              "value": "10"
+              "value": "500"
             },
             {
               "name": "labelIds",
@@ -153,11 +153,25 @@
               "fullResponse": true,
               "neverError": true
             }
+          },
+          "pagination": {
+            "paginationMode": "updateAParameterInEachRequest",
+            "parameters": {
+              "parameters": [
+                {
+                  "type": "query",
+                  "name": "pageToken",
+                  "value": "={{ $response.body.nextPageToken }}"
+                }
+              ]
+            },
+            "paginationCompleteWhen": "other",
+            "completeExpression": "={{ !$response.body.nextPageToken }}"
           }
         }
       },
       "id": "00000002-0000-4000-8000-000000000005",
-      "name": "List ten unread messages",
+      "name": "List unread messages (all pages)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -178,10 +192,10 @@
     },
     {
       "parameters": {
-        "jsCode": "const r=$json;const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';if(r.statusCode!==200)return [{json:{failed:true,errorCode:code(r.statusCode)}}]; const ids=(r.body?.messages ?? []).slice(0,10).map(m=>m.id).filter(id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id));return ids.length?ids.map(id=>({json:{messageId:id,failed:false,empty:false}})):[{json:{failed:false,empty:true}}];"
+        "jsCode": "const pages=$input.all();const bad=pages.find(i=>i.json.statusCode!==200);const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';if(bad)return [{json:{failed:true,errorCode:code(bad.json.statusCode)}}]; const ids=pages.flatMap(i=>i.json.body?.messages ?? []).map(m=>m.id).filter(id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id));return ids.length?ids.map(id=>({json:{messageId:id,failed:false,empty:false}})):[{json:{failed:false,empty:true}}];"
       },
       "id": "00000002-0000-4000-8000-000000000006",
-      "name": "Validate list and bound message IDs",
+      "name": "Validate every result and retain bounded message IDs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -279,7 +293,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,messages:[]}) }}",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,messages:[],complete:true}) }}",
         "options": {
           "timeout": 30000,
           "response": {
@@ -346,7 +360,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const all=$input.all();const bad=all.find(i=>i.json.statusCode!==200||!i.json.body?.id);const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';return [{json:{tenantId:$('Load authorized run context').first().json.run.tenantId,failed:Boolean(bad),errorCode:bad?code(bad.json.statusCode):undefined,messages:bad?[]:all.map(i=>i.json.body)}}];"
+        "jsCode": "const all=$input.all(); const bad=all.find(i=>i.json.statusCode!==200||!i.json.body?.id); const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED'; if(bad)return [{json:{tenantId:$('Load authorized run context').first().json.run.tenantId,failed:true,errorCode:code(bad.json.statusCode),messages:[],complete:true}}]; const messages=all.map(i=>i.json.body); const batches=[]; for(let i=0;i<messages.length;i+=10)batches.push(messages.slice(i,i+10)); return batches.map((batch,index)=>({json:{tenantId:$('Load authorized run context').first().json.run.tenantId,failed:false,messages:batch,complete:index===batches.length-1}}));"
       },
       "id": "00000002-0000-4000-8000-000000000011",
       "name": "Aggregate transient preview batch",
@@ -414,7 +428,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({tenantId:$json.tenantId,messages:$json.messages}) }}",
+        "body": "={{ JSON.stringify({tenantId:$json.tenantId,messages:$json.messages,complete:$json.complete}) }}",
         "options": {
           "timeout": 30000,
           "response": {
@@ -457,7 +471,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:$json.errorCode ?? ($json.error ? 'GMAIL_EXECUTION_FAILED' : 'GMAIL_REQUEST_FAILED')}) }}",
+        "body": "={{ JSON.stringify({tenantId:$('Load authorized run context').first().json.run.tenantId,errorCode:['GMAIL_CREDENTIALS_INVALID','GMAIL_RATE_LIMITED','GMAIL_SERVICE_UNAVAILABLE','GMAIL_REQUEST_FAILED'].includes($json.errorCode)?$json.errorCode:'GMAIL_EXECUTION_FAILED'}) }}",
         "options": {
           "timeout": 30000,
           "response": {
@@ -515,18 +529,18 @@
       "main": [
         [
           {
-            "node": "List ten unread messages",
+            "node": "List unread messages (all pages)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "List ten unread messages": {
+    "List unread messages (all pages)": {
       "main": [
         [
           {
-            "node": "Validate list and bound message IDs",
+            "node": "Validate every result and retain bounded message IDs",
             "type": "main",
             "index": 0
           }
@@ -540,7 +554,7 @@
         ]
       ]
     },
-    "Validate list and bound message IDs": {
+    "Validate every result and retain bounded message IDs": {
       "main": [
         [
           {
