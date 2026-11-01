@@ -114,6 +114,12 @@ test('manual provider fetch uses API-authorized selection only', () => {
     ],
   });
   assert.equal(many.length, 25);
+  assert.deepEqual(
+    execute(workflow03, 'Check every selected retrieval', [
+      { json: { statusCode: 401, body: { error: 'PRIVATE PROVIDER DETAIL' } } },
+    ]),
+    [{ json: { failed: true, errorCode: 'GMAIL_CREDENTIALS_INVALID' } }],
+  );
 });
 
 test('preview uses Gmail page tokens and batches all retained messages by ten', () => {

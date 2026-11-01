@@ -212,7 +212,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const all=$input.all();if(all.some(i=>i.json.statusCode!==200||!i.json.body?.id))return [{json:{failed:true}}];return all.map(i=>({json:{failed:false,tenantId:$('Load authorized run context').first().json.run.tenantId,runId:$('Load authorized run context').first().json.run.id,mode:'selected',message:i.json.body}}));"
+        "jsCode": "const all=$input.all();const bad=all.find(i=>i.json.statusCode!==200||!i.json.body?.id);const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';if(bad)return [{json:{failed:true,errorCode:code(bad.json.statusCode)}}];return all.map(i=>({json:{failed:false,tenantId:$('Load authorized run context').first().json.run.tenantId,runId:$('Load authorized run context').first().json.run.id,mode:'selected',message:i.json.body}}));"
       },
       "id": "00000003-0000-4000-8000-000000000008",
       "name": "Check every selected retrieval",
@@ -581,12 +581,12 @@
   },
   "settings": {
     "executionOrder": "v1",
+    "executionTimeout": 180,
     "errorWorkflow": "10000000-0000-4000-8000-000000000099",
     "saveDataErrorExecution": "none",
     "saveDataSuccessExecution": "none",
     "saveManualExecutions": false,
-    "saveExecutionProgress": false,
-    "executionTimeout": 180
+    "saveExecutionProgress": false
   },
   "versionId": "00000003-0000-4000-8000-000000000099",
   "tags": []

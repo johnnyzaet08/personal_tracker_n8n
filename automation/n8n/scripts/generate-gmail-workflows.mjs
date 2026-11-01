@@ -152,7 +152,11 @@ const gmail = (name, list = false) =>
     },
     {
       credentials,
-      onError: 'continueErrorOutput',
+      ...(list ||
+      name === 'Retrieve preview message content' ||
+      name === 'Recheck selected Gmail message'
+        ? { onError: 'continueErrorOutput' }
+        : {}),
       retryOnFail: true,
       maxTries: 2,
       waitBetweenTries: 1000,
@@ -174,7 +178,7 @@ async function save(number, filename, name, build) {
   const { nodes, edges } = build();
   await writeFile(
     resolve(directory, filename),
-    `${JSON.stringify({ id: workflowId(number), name, active: false, nodes, connections: connections(edges), settings: [2, 3].includes(number) ? { ...settings, executionTimeout: 180 } : settings, versionId: `${String(number).padStart(8, '0')}-0000-4000-8000-000000000099`, tags: [] }, null, 2)}\n`,
+    `${JSON.stringify({ id: workflowId(number), name, active: false, nodes, connections: connections(edges), settings: [2, 3].includes(number) ? { executionOrder: settings.executionOrder, executionTimeout: 180, ...Object.fromEntries(Object.entries(settings).filter(([key]) => key !== 'executionOrder')) } : settings, versionId: `${String(number).padStart(8, '0')}-0000-4000-8000-000000000099`, tags: [] }, null, 2)}\n`,
   );
 }
 
@@ -370,7 +374,7 @@ await save(
       gmail('Recheck selected Gmail message'),
       code(
         'Check every selected retrieval',
-        `const all=$input.all();if(all.some(i=>i.json.statusCode!==200||!i.json.body?.id))return [{json:{failed:true}}];return all.map(i=>({json:{failed:false,tenantId:${runTenant},runId:$('Load authorized run context').first().json.run.id,mode:'selected',message:i.json.body}}));`,
+        `const all=$input.all();const bad=all.find(i=>i.json.statusCode!==200||!i.json.body?.id);const code=s=>s===401||s===403?'GMAIL_CREDENTIALS_INVALID':s===429?'GMAIL_RATE_LIMITED':s>=500?'GMAIL_SERVICE_UNAVAILABLE':'GMAIL_REQUEST_FAILED';if(bad)return [{json:{failed:true,errorCode:code(bad.json.statusCode)}}];return all.map(i=>({json:{failed:false,tenantId:${runTenant},runId:$('Load authorized run context').first().json.run.id,mode:'selected',message:i.json.body}}));`,
       ),
       branch('Selected retrieval failed?', '={{ $json.failed }}'),
       { ...execute('Execute shared email router', 1), onError: 'continueErrorOutput' },

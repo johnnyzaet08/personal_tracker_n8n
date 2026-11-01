@@ -651,12 +651,12 @@
   },
   "settings": {
     "executionOrder": "v1",
+    "executionTimeout": 180,
     "errorWorkflow": "10000000-0000-4000-8000-000000000099",
     "saveDataErrorExecution": "none",
     "saveDataSuccessExecution": "none",
     "saveManualExecutions": false,
-    "saveExecutionProgress": false,
-    "executionTimeout": 180
+    "saveExecutionProgress": false
   },
   "versionId": "00000002-0000-4000-8000-000000000099",
   "tags": []
